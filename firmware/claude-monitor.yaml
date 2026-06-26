@@ -249,16 +249,20 @@ font:
 image:
   - file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/hand_hour.png"
     id: img_hour
-    type: TRANSPARENT_IMAGE
+    type: RGB
+    transparency: alpha_channel
   - file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/hand_minute.png"
     id: img_minute
-    type: TRANSPARENT_IMAGE
+    type: RGB
+    transparency: alpha_channel
   - file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/hand_second.png"
     id: img_second
-    type: TRANSPARENT_IMAGE
+    type: RGB
+    transparency: alpha_channel
   - file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/marker_triangle.png"
     id: img_triangle
-    type: TRANSPARENT_IMAGE
+    type: RGB
+    transparency: alpha_channel
 
 # === CST820 capacitive touch (I2C 0x15). Polling mode — the CST820's
 # interrupt line is unreliable in ESPHome, so we poll instead. ===
