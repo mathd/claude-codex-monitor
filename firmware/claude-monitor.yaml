@@ -55,15 +55,16 @@ time:
 interval:
   - interval: 1s
     then:
+      # NOTE: runtime angle lambdas return 0.1-degree units (degrees * 10).
       - lvgl.image.update:
           id: clk_hour
-          angle: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return ((t.hour % 12) * 60 + t.minute) * 0.5f;'   # 360/720
+          angle: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return ((t.hour % 12) * 60 + t.minute) * 5.0f;'   # 3600/720
       - lvgl.image.update:
           id: clk_minute
-          angle: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return (t.minute * 60 + t.second) * 0.1f;'        # 360/3600
+          angle: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return (t.minute * 60 + t.second) * 1.0f;'        # 3600/3600
       - lvgl.image.update:
           id: clk_second
-          angle: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return t.second * 6.0f;'                          # 360/60
+          angle: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return t.second * 60.0f;'                         # 3600/60
 
   # Auto-switch tiles: clock when idle (both 5h sessions = 0%), to the active
   # provider when usage starts or crosses a 70%/90% threshold. Paused for 2 min
@@ -263,6 +264,10 @@ image:
     id: img_triangle
     type: RGB
     transparency: alpha_channel
+  - file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/baton.png"
+    id: img_baton
+    type: RGB
+    transparency: alpha_channel
 
 # === CST820 capacitive touch (I2C 0x15). Polling mode — the CST820's
 # interrupt line is unreliable in ESPHome, so we poll instead. ===
@@ -277,6 +282,9 @@ touchscreen:
     # Center third is left for buttons/sliders. on_touch gives touch coordinates.
     on_touch:
       - lambda: 'id(last_touch_ms) = millis();'   # pause auto-switch after manual touch
+      - logger.log:
+          format: "TOUCH x=%d y=%d"
+          args: [touch.x, touch.y]
       - lambda: |-
           int dir = 0;
           if (touch.x < 100)       dir = -1;   // left edge -> previous
@@ -642,22 +650,21 @@ lvgl:
                         length: 12
                         width: 2
                         color: 0xAAAAAA
-                    # bold baton hour markers. range 0..11 with 12 ticks spreads
-                    # them evenly (0 and 12 would overlap at the top otherwise).
-                    - range_from: 0
-                      range_to: 11
-                      angle_range: 360
-                      rotation: 270
-                      ticks:
-                        count: 12
-                        length: 26
-                        width: 8
-                        color: 0xFFFFFF
               # Triangle marker at 12 (Explorer signature)
               - image:
                   src: img_triangle
                   align: CENTER
                   y: -198
+              # Baton hour markers at 1,2,4,5,7,8,10,11 (skip 3/6/9 numerals + 12 triangle).
+              # baton.png 24x210, pivot (12,210); y:-105 puts pivot at dial center; rotate by hour angle.
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 30 }
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 60 }
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 120 }
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 150 }
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 210 }
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 240 }
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 300 }
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 330 }
               # 3 / 6 / 9 Arabic numerals
               - label:
                   align: CENTER
