@@ -1,0 +1,248 @@
+// Claude usage provider.
+//
+// Reads usage from Anthropic's read-only OAuth usage endpoint (the same one the
+// Claude clients use) — NOT a billed inference call. Free, no rate-limit exposure,
+// and returns structured windows: five_hour (session), seven_day (weekly), and
+// seven_day_sonnet (the separate Sonnet weekly cap).
+//
+// Token from ~/.claude/.credentials.json (claudeAiOauth). If the access token is
+// rejected, refresh it via platform.claude.com and retry (writing the rotated
+// tokens back so the Claude CLI stays in sync).
+//
+// Method mirrors OpenUsage (Sources/OpenUsage/Providers/Claude/*).
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"log"
+	"math"
+	"net/http"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+const (
+	claudeUsageURL   = "https://api.anthropic.com/api/oauth/usage"
+	claudeRefreshURL = "https://platform.claude.com/v1/oauth/token"
+	claudeClientID   = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+	claudeScopes     = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
+	claudeBetaHdr    = "oauth-2025-04-20"
+	claudeUA         = "claude-code/2.1.69"
+)
+
+func claudeCredPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".claude", ".credentials.json"), nil
+}
+
+// claudeTokens returns (accessToken, refreshToken).
+func claudeTokens() (string, string) {
+	p, err := claudeCredPath()
+	if err != nil {
+		return "", ""
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		return "", ""
+	}
+	var d map[string]any
+	if json.Unmarshal(raw, &d) != nil {
+		return "", ""
+	}
+	if o, ok := d["claudeAiOauth"].(map[string]any); ok {
+		at, _ := o["accessToken"].(string)
+		rt, _ := o["refreshToken"].(string)
+		return at, rt
+	}
+	return "", ""
+}
+
+// refreshClaudeToken exchanges the refresh token, persists the rotated tokens back
+// to ~/.claude/.credentials.json, and returns the new access token.
+func refreshClaudeToken(ctx context.Context, refreshToken string) (string, error) {
+	body, _ := json.Marshal(map[string]any{
+		"grant_type":    "refresh_token",
+		"refresh_token": refreshToken,
+		"client_id":     claudeClientID,
+		"scope":         claudeScopes,
+	})
+	req, err := http.NewRequestWithContext(ctx, "POST", claudeRefreshURL, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	rb, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	if resp.StatusCode != 200 {
+		return "", &httpErr{resp.StatusCode}
+	}
+	var m struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if json.Unmarshal(rb, &m) != nil || m.AccessToken == "" {
+		return "", &parseErr{"claude refresh: no access_token"}
+	}
+	persistClaudeTokens(m.AccessToken, m.RefreshToken)
+	return m.AccessToken, nil
+}
+
+// persistClaudeTokens updates claudeAiOauth.accessToken/refreshToken in place,
+// preserving every other field in the credentials file. Best-effort.
+func persistClaudeTokens(access, refresh string) {
+	p, err := claudeCredPath()
+	if err != nil {
+		return
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		return
+	}
+	var d map[string]any
+	if json.Unmarshal(raw, &d) != nil {
+		return
+	}
+	o, ok := d["claudeAiOauth"].(map[string]any)
+	if !ok {
+		return
+	}
+	o["accessToken"] = access
+	if refresh != "" {
+		o["refreshToken"] = refresh
+	}
+	if out, err := json.MarshalIndent(d, "", "  "); err == nil {
+		_ = os.WriteFile(p, out, 0600)
+	}
+}
+
+// claudeUsageResp is the subset of /api/oauth/usage we use.
+type claudeWindow struct {
+	Utilization float64 `json:"utilization"`
+	ResetsAt    string  `json:"resets_at"` // RFC3339, may be null
+}
+type claudeUsageResp struct {
+	FiveHour       claudeWindow `json:"five_hour"`
+	SevenDay       claudeWindow `json:"seven_day"`
+	SevenDaySonnet claudeWindow `json:"seven_day_sonnet"`
+}
+
+func claudeGetUsage(ctx context.Context, token string) (*claudeUsageResp, int) {
+	req, err := http.NewRequestWithContext(ctx, "GET", claudeUsageURL, nil)
+	if err != nil {
+		return nil, 0
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("anthropic-beta", claudeBetaHdr)
+	req.Header.Set("User-Agent", claudeUA)
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, 0
+	}
+	defer func() { io.Copy(io.Discard, resp.Body); resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		return nil, resp.StatusCode
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	var u claudeUsageResp
+	if json.Unmarshal(body, &u) != nil {
+		return nil, resp.StatusCode
+	}
+	return &u, 200
+}
+
+func resetMinFromRFC3339(ts string) int {
+	if ts == "" {
+		return 0
+	}
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return 0
+	}
+	mins := time.Until(t).Minutes()
+	if mins < 0 {
+		return 0
+	}
+	return int(math.Round(mins))
+}
+
+// fetchUsage reads Claude usage, refreshing the token once on 401/403.
+// Returns a *usage (session = five_hour, week = seven_day) or nil on failure.
+func fetchUsage(ctx context.Context) *usage {
+	access, refresh := claudeTokens()
+	if access == "" {
+		log.Printf("Claude: no token (run 'claude login')")
+		return nil
+	}
+
+	u, code := claudeGetUsage(ctx, access)
+	if (code == 401 || code == 403) && refresh != "" {
+		log.Printf("Claude: token rejected (%d), refreshing...", code)
+		if newTok, err := refreshClaudeToken(ctx, refresh); err == nil {
+			u, code = claudeGetUsage(ctx, newTok)
+		} else {
+			log.Printf("Claude refresh failed: %v", err)
+		}
+	}
+	if u == nil {
+		log.Printf("Claude usage fetch failed (HTTP %d)", code)
+		return nil
+	}
+
+	pct := func(p float64) int { return int(math.Round(math.Max(0, math.Min(100, p)))) }
+	return &usage{
+		SessionPct:      pct(u.FiveHour.Utilization),
+		SessionResetMin: resetMinFromRFC3339(u.FiveHour.ResetsAt),
+		WeekPct:         pct(u.SevenDay.Utilization),
+		WeekResetMin:    resetMinFromRFC3339(u.SevenDay.ResetsAt),
+		SonnetPct:       pct(u.SevenDaySonnet.Utilization),
+		SonnetResetMin:  resetMinFromRFC3339(u.SevenDaySonnet.ResetsAt),
+		Ok:              true,
+	}
+}
+
+// small error types
+type httpErr struct{ code int }
+
+func (e *httpErr) Error() string { return "HTTP " + itoa(e.code) }
+
+type parseErr struct{ msg string }
+
+func (e *parseErr) Error() string { return e.msg }
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var b [12]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		i--
+		b[i] = '-'
+	}
+	return string(b[i:])
+}

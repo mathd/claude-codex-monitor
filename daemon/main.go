@@ -1,43 +1,32 @@
-// Claude usage monitor daemon — MQTT edition.
+// Claude + Codex usage monitor daemon.
 //
-// Reads Claude Code usage from Anthropic rate-limit response headers (the same
-// approach as Claudial / Clawdmeter) and publishes them to an MQTT broker with
-// Home Assistant MQTT auto-discovery. Works at home (HA reads the broker) and at
-// the office (any device can subscribe to the same broker).
+// Reads usage from each vendor's read-only usage channel (Claude: oauth/usage
+// endpoint; Codex: wham/usage), self-refreshing OAuth tokens, and publishes to an
+// MQTT broker with Home Assistant auto-discovery. Works at home (HA reads the
+// broker) and at the office (any device subscribes to the same broker).
 //
-// Published state topic (default):  claude_monitor/state   (retained JSON)
-//   {"session_pct":45,"session_reset_min":120,"week_pct":28,"week_reset_min":7200,"ok":true,"stale":false}
+// State topics (retained JSON):
+//   claude_monitor/state        Claude  {session_pct, session_reset_min, week_pct, week_reset_min, ...}
+//   claude_monitor/codex_state  Codex   (same shape)
 //
-// HA discovery topics under homeassistant/sensor/claude_monitor_*/config make
-// the sensors appear automatically (no YAML editing in HA needed).
+// Claude fetching is in claude.go, Codex in codex.go.
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"math"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/joho/godotenv"
 )
-
-const (
-	apiURL = "https://api.anthropic.com/v1/messages"
-)
-
-var apiBody = []byte(`{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`)
 
 // ---- config ----
 
@@ -94,52 +83,6 @@ func loadConfig() config {
 	return cfg
 }
 
-// ---- credentials (same logic as Claudial) ----
-
-func loadToken() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("cannot determine home directory: %w", err)
-	}
-	candidates := []string{
-		filepath.Join(home, ".claude", ".credentials.json"),
-	}
-	if v := os.Getenv("LOCALAPPDATA"); v != "" {
-		candidates = append(candidates, filepath.Join(v, "Claude", ".credentials.json"))
-	}
-	if v := os.Getenv("APPDATA"); v != "" {
-		candidates = append(candidates, filepath.Join(v, "Claude", ".credentials.json"))
-	}
-	for _, p := range candidates {
-		raw, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		if tok := extractToken(raw); tok != "" {
-			return tok, nil
-		}
-	}
-	return "", fmt.Errorf("accessToken not found in credentials (run 'claude login')")
-}
-
-func extractToken(raw []byte) string {
-	var data map[string]any
-	if err := json.Unmarshal(raw, &data); err == nil {
-		// Preferred: claudeAiOauth.accessToken (the Claude Code subscription token).
-		// NOT mcpOAuth.*.accessToken, which is an unrelated MCP server token.
-		if oauth, ok := data["claudeAiOauth"].(map[string]any); ok {
-			if tok, ok := oauth["accessToken"].(string); ok && tok != "" {
-				return tok
-			}
-		}
-		// Fallback: a top-level accessToken (older credential layouts).
-		if tok, ok := data["accessToken"].(string); ok && tok != "" {
-			return tok
-		}
-	}
-	return ""
-}
-
 // ---- usage payload ----
 
 type usage struct {
@@ -147,93 +90,13 @@ type usage struct {
 	SessionResetMin int  `json:"session_reset_min"`
 	WeekPct         int  `json:"week_pct"`
 	WeekResetMin    int  `json:"week_reset_min"`
+	SonnetPct       int  `json:"sonnet_pct,omitempty"`
+	SonnetResetMin  int  `json:"sonnet_reset_min,omitempty"`
 	Ok              bool `json:"ok"`
 	Stale           bool `json:"stale"`
 }
 
-// fetchUsage makes the tiny API call and parses the rate-limit headers.
-// Returns nil on a recoverable error (caller should fall back to cached/stale).
-func fetchUsage(ctx context.Context, token string) *usage {
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(apiBody))
-	if err != nil {
-		log.Printf("request build error: %v", err)
-		return nil
-	}
-	req.Header.Set("anthropic-version", "2023-06-01")
-	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "claude-code/2.1.5")
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	client := &http.Client{Timeout: 20 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil
-		}
-		log.Printf("API error: %v", err)
-		return nil
-	}
-	defer func() {
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-	}()
-
-	if resp.StatusCode == 401 {
-		log.Printf("API 401: token expired — run 'claude login' to refresh")
-		return nil
-	}
-	if resp.StatusCode == 429 {
-		log.Printf("Rate limited (429) — will retry next poll")
-		return nil
-	}
-	if resp.StatusCode >= 400 {
-		log.Printf("API HTTP %d", resp.StatusCode)
-		return nil
-	}
-
-	now := float64(time.Now().Unix())
-	hdr := func(name string) string { return resp.Header.Get(name) }
-
-	pct := func(util string) (int, bool) {
-		f, err := strconv.ParseFloat(strings.TrimSpace(util), 64)
-		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
-			return 0, false
-		}
-		return int(math.Round(math.Max(0, math.Min(1, f)) * 100)), true
-	}
-	resetMin := func(ts string) int {
-		f, err := strconv.ParseFloat(strings.TrimSpace(ts), 64)
-		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
-			return 0
-		}
-		mins := (f - now) / 60.0
-		if mins < 0 {
-			return 0
-		}
-		return int(math.Round(mins))
-	}
-
-	sUtil := hdr("anthropic-ratelimit-unified-5h-utilization")
-	wUtil := hdr("anthropic-ratelimit-unified-7d-utilization")
-	if sUtil == "" || wUtil == "" {
-		log.Printf("Rate-limit headers missing in 2xx response")
-		return nil
-	}
-	sPct, sOk := pct(sUtil)
-	wPct, wOk := pct(wUtil)
-	if !sOk || !wOk {
-		log.Printf("Rate-limit headers unparseable (s=%q w=%q)", sUtil, wUtil)
-		return nil
-	}
-	return &usage{
-		SessionPct:      sPct,
-		SessionResetMin: resetMin(hdr("anthropic-ratelimit-unified-5h-reset")),
-		WeekPct:         wPct,
-		WeekResetMin:    resetMin(hdr("anthropic-ratelimit-unified-7d-reset")),
-		Ok:              true,
-	}
-}
+// Claude usage fetching lives in claude.go; Codex in codex.go.
 
 // ---- MQTT + HA discovery ----
 
@@ -359,28 +222,17 @@ func main() {
 
 	var codexCached *usage
 	poll := func() {
-		// --- Claude ---
-		token, err := loadToken()
-		if err != nil {
-			log.Printf("Token error: %v", err)
-			if cached != nil {
-				cached.Stale = true
-				publishState(client, cfg, cached)
-			} else {
-				publishState(client, cfg, &usage{Ok: false})
-			}
+		// --- Claude (free read-only usage endpoint, self-refreshing token) ---
+		u := fetchUsage(ctx)
+		if u != nil {
+			u.Stale = false
+			cached = u
+			publishState(client, cfg, u)
+		} else if cached != nil {
+			cached.Stale = true
+			publishState(client, cfg, cached)
 		} else {
-			u := fetchUsage(ctx, token)
-			if u != nil {
-				u.Stale = false
-				cached = u
-				publishState(client, cfg, u)
-			} else if cached != nil {
-				cached.Stale = true
-				publishState(client, cfg, cached)
-			} else {
-				publishState(client, cfg, &usage{Ok: false})
-			}
+			publishState(client, cfg, &usage{Ok: false})
 		}
 
 		// --- Codex (best-effort; absent if no ~/.codex/auth.json) ---

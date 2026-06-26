@@ -63,18 +63,25 @@ blocked the way the wiki HTML is.
 Neither Claude nor Codex subscription plans expose remaining quota directly. We read
 it from the side channels both vendors' own clients use.
 
-### Claude: rate-limit response headers
-Make a tiny throwaway API call (Haiku, ~9 tokens, ~$0.02/day) with the OAuth token
-from `~/.claude/.credentials.json`, then read these **response headers**:
-- `anthropic-ratelimit-unified-5h-utilization` / `-reset` → session %, reset
-- `anthropic-ratelimit-unified-7d-utilization` / `-reset` → weekly %, reset
+### Claude: the free OAuth usage endpoint (preferred)
+`GET https://api.anthropic.com/api/oauth/usage` with `Authorization: Bearer <token>`,
+`anthropic-beta: oauth-2025-04-20`, and a `claude-code/*` user-agent. This is a
+**read-only, free** endpoint (no inference, no cost, can't trip a rate limit).
+Returns `five_hour` (session), `seven_day` (weekly), and `seven_day_sonnet` (a
+separate Sonnet weekly cap) — each with `utilization` (already a percent) and
+`resets_at` (RFC3339). Also returns `extra_usage`/`spend` (credit balance).
 
-The credentials file is nested — read `claudeAiOauth.accessToken` specifically. Do
-**not** grab the first `accessToken` you find; `mcpOAuth.*.accessToken` is a different
-(MCP) token that won't work against the messages API.
+Token from `~/.claude/.credentials.json`, **nested**: read
+`claudeAiOauth.accessToken` specifically — NOT the first `accessToken` you find
+(`mcpOAuth.*.accessToken` is a different MCP token). Refresh via
+`POST https://platform.claude.com/v1/oauth/token` (JSON body
+`grant_type=refresh_token&refresh_token&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&scope=...`),
+then write the rotated tokens back so the Claude CLI stays in sync.
 
-Required headers on the call: `anthropic-beta: oauth-2025-04-20`, a `claude-code/*`
-user-agent, `anthropic-version: 2023-06-01`.
+> History: we originally read rate-limit **response headers** off a tiny throwaway
+> Haiku call (`anthropic-ratelimit-unified-5h-utilization` etc.). That worked but
+> cost ~$0.02/day and could trip a rate limit. The usage endpoint (how OpenUsage
+> does it) is strictly better — free, richer, self-refreshing.
 
 ### Codex: OAuth refresh + wham/usage endpoint
 From `~/.codex/auth.json` read `tokens.refresh_token` + `tokens.account_id`, then:

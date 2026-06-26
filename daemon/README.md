@@ -8,10 +8,11 @@ their local credentials).
 
 Every `POLL_INTERVAL` seconds:
 
-- **Claude** — makes a tiny Haiku API call (~9 tokens, ~$0.02/day) with the OAuth
-  token from `~/.claude/.credentials.json`, reads the rate-limit response headers:
-  - `anthropic-ratelimit-unified-5h-utilization` / `-reset` → session %, reset
-  - `anthropic-ratelimit-unified-7d-utilization` / `-reset` → weekly %, reset
+- **Claude** — GETs Anthropic's read-only OAuth usage endpoint
+  (`api.anthropic.com/api/oauth/usage`) with the token from
+  `~/.claude/.credentials.json`, self-refreshing it against `platform.claude.com`.
+  Returns `five_hour` (session), `seven_day` (weekly), and `seven_day_sonnet`
+  windows. **Free** (no inference) and can't trip a rate limit.
 - **Codex** — refreshes the OAuth token from `~/.codex/auth.json` against
   `auth.openai.com`, then GETs `chatgpt.com/backend-api/wham/usage` and reads the
   `primary_window` (5h) and `secondary_window` (weekly). Auto-refresh means the
