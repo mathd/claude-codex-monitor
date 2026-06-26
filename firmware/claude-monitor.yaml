@@ -180,7 +180,7 @@ display:
     pclk_pin: GPIO41
     hsync_pin: GPIO38
     vsync_pin: GPIO39
-    pclk_frequency: 16MHz
+    pclk_frequency: 12MHz         # lowered from 16MHz to reduce PSRAM-bandwidth shimmer
     pclk_inverted: true           # flip clock edge — fixes constant RGB shimmer/tearing on ST7701
     data_pins:
       blue:  [GPIO5,  GPIO45, GPIO48, GPIO47, GPIO21]
