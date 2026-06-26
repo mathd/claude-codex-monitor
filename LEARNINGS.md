@@ -139,6 +139,12 @@ prefixed** name.
   hand PNGs at raw.githubusercontent.com (repo is public) so no Pi file copy is needed.
 - **Image `type:`** — `TRANSPARENT_IMAGE`/`RGBA` are deprecated. For white-on-
   transparent PNGs use `type: RGB` + `transparency: alpha_channel`.
+- **RGB panel shimmer/tearing fix (ST7701):** ESPHome `mipi_rgb` does NOT expose the
+  vendor demo's bounce buffer. The anti-tear levers that worked, in order of payoff:
+  (1) `pclk_inverted: true` — flips the clock-latch edge; biggest single win for
+  constant fine shimmer. (2) lower `pclk_frequency` 16MHz → **12MHz** — eases
+  PSRAM-bandwidth starvation of the framebuffer; cleared the residual completely.
+  Keep PSRAM at `mode: octal, speed: 80MHz`. Final: pclk 12MHz + inverted = no shimmer.
 - The whole-screen background is the LVGL `bottom_layer`, not just the page bg.
   For a tileview, also set each **tile**'s bg (and the tileview's) opaque — a
   per-arc `bg_color` only covers the area under the arcs, leaving the center white.
