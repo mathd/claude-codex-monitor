@@ -273,8 +273,32 @@ touchscreen:
     update_interval: 50ms
     on_release:
       - lvgl.widget.redraw
-      # Pause auto-switch for a bit after any manual touch (so it doesn't fight swipes).
-      - lambda: 'id(last_touch_ms) = millis();'
+    # Tap navigation: tap the left third = previous tile, right third = next.
+    # Center third is left for buttons/sliders. on_touch gives touch coordinates.
+    on_touch:
+      - lambda: 'id(last_touch_ms) = millis();'   # pause auto-switch after manual touch
+      - lambda: |-
+          int dir = 0;
+          if (touch.x < 100)       dir = -1;   // left edge -> previous
+          else if (touch.x > 380)  dir = +1;   // right edge -> next (Settings buttons are centered ~120-360)
+          if (dir != 0) {
+            int t = id(cur_tile) + dir;
+            if (t < 0) t = 0;
+            if (t > 3) t = 3;            // tiles: 0=Claude 1=Codex 2=Clock 3=Settings
+            id(switch_target) = t;
+          } else {
+            id(switch_target) = -1;
+          }
+      - if:
+          condition:
+            lambda: 'return id(switch_target) >= 0 && id(switch_target) != id(cur_tile);'
+          then:
+            - lvgl.tileview.select:
+                id: tiles
+                row: 0
+                column: !lambda 'return id(switch_target);'
+                animated: true
+            - lambda: 'id(cur_tile) = id(switch_target);'
 
 # Persist the reset-time display format across reboots (false = "2h39m", true = clock time)
 globals:
