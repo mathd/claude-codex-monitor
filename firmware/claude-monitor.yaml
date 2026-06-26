@@ -20,6 +20,20 @@ esphome:
       - light.turn_on:
           id: backlight
           brightness: 100%
+      # Apply the saved Sonnet-ring preference (default off → arc is hidden in YAML)
+      - if:
+          condition:
+            lambda: 'return id(show_sonnet);'
+          then:
+            - lvgl.widget.show: arc_sonnet
+            - lvgl.widget.show: lbl_sonnet
+            - lvgl.label.update:
+                id: lbl_sonnet_btn
+                text: "Sonnet ring: On"
+            - lvgl.widget.update:
+                id: btn_sonnet
+                state:
+                  checked: true
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -222,6 +236,10 @@ globals:
     type: bool
     restore_value: true
     initial_value: 'false'
+  - id: show_sonnet
+    type: bool
+    restore_value: true
+    initial_value: 'false'      # 3rd (Sonnet) ring off by default
 
 # === Home Assistant sensors (published by the daemon over MQTT) ===
 # These pull the live values onto the device and update the arcs/labels.
@@ -275,7 +293,12 @@ sensor:
             value: !lambda 'return x;'
         - lvgl.label.update:
             id: lbl_sonnet
-            text: !lambda 'static char b[16]; snprintf(b, sizeof(b), "sonnet %d%%", (int)x); return b;'
+            text: !lambda |-
+              static char b[16];
+              // NaN fails both comparisons; the 21474836 unavailable-sentinel is > 100.
+              if (x >= 0.0f && x <= 100.0f) { snprintf(b, sizeof(b), "sonnet %d%%", (int)x); }
+              else { snprintf(b, sizeof(b), "sonnet --%%"); }
+              return b;
         - lvgl.arc.update:
             id: arc_sonnet
             indicator:
@@ -389,6 +412,7 @@ lvgl:
                   end_angle: 360
                   adjustable: false
                   bg_opa: TRANSP
+                  bg_color: 0x000000
                   border_width: 0
                   pad_all: 0
                   arc_rounded: true
@@ -411,6 +435,7 @@ lvgl:
                   end_angle: 360
                   adjustable: false
                   bg_opa: TRANSP
+                  bg_color: 0x000000
                   border_width: 0
                   pad_all: 0
                   arc_rounded: true
@@ -424,56 +449,59 @@ lvgl:
               - arc:
                   id: arc_sonnet
                   align: CENTER
-                  width: 320
-                  height: 320
+                  width: 318
+                  height: 318
                   min_value: 0
                   max_value: 100
                   value: 0
                   start_angle: 0
                   end_angle: 360
                   adjustable: false
+                  hidden: true            # off by default; toggled in Settings
                   bg_opa: TRANSP
+                  bg_color: 0x000000
                   border_width: 0
                   pad_all: 0
                   arc_rounded: true
-                  arc_width: 20
+                  arc_width: 18
                   arc_color: 0x2A2140
                   arc_opa: COVER
                   indicator:
                     arc_rounded: true
-                    arc_width: 20
+                    arc_width: 18
                     arc_color: 0xB060FF
               - label:
                   id: lbl_pct
                   align: CENTER
-                  y: -40
+                  y: -56
                   text: "--%"
                   text_color: 0xFFFFFF
                   text_font: font_pct
               - label:
                   align: CENTER
-                  y: 28
+                  y: 8
                   text: "Claude Code"
                   text_color: 0xBBBBBB
                   text_font: font_med
               - label:
                   id: lbl_week
                   align: CENTER
-                  y: 64
+                  y: 42
                   text: "week --%"
                   text_color: 0x00B0FF
                   text_font: font_small
               - label:
                   id: lbl_sonnet
                   align: CENTER
-                  y: 92
+                  y: 68
+                  hidden: true            # shown only when the Sonnet ring is on
                   text: "sonnet --%"
                   text_color: 0xB060FF
                   text_font: font_small
               - label:
                   id: lbl_reset
                   align: CENTER
-                  y: 120
+                  y: 96
                   text: "reset --"
                   text_color: 0x999999
                   text_font: font_small
@@ -698,27 +726,50 @@ lvgl:
                         id: lbl_bright
                         text: !lambda 'static char b[20]; snprintf(b, sizeof(b), "Brightness %d%%", (int)x); return b;'
               # Reset-time format toggle
-              - label:
-                  align: CENTER
-                  y: 40
-                  text: "Reset format"
-                  text_color: 0xBBBBBB
-                  text_font: font_small
               - button:
                   id: btn_reset_fmt
                   align: CENTER
-                  y: 80
-                  width: 220
-                  height: 50
+                  y: 36
+                  width: 240
+                  height: 46
                   checkable: true
                   widgets:
                     - label:
                         id: lbl_reset_fmt
                         align: CENTER
-                        text: "Countdown"
+                        text: "Reset: Countdown"
                         text_font: font_small
                   on_click:
                     - lambda: 'id(reset_show_clock) = !id(reset_show_clock);'
                     - lvgl.label.update:
                         id: lbl_reset_fmt
-                        text: !lambda 'return id(reset_show_clock) ? std::string("Clock time") : std::string("Countdown");'
+                        text: !lambda 'return id(reset_show_clock) ? std::string("Reset: Clock") : std::string("Reset: Countdown");'
+              # Sonnet ring toggle
+              - button:
+                  id: btn_sonnet
+                  align: CENTER
+                  y: 92
+                  width: 240
+                  height: 46
+                  checkable: true
+                  widgets:
+                    - label:
+                        id: lbl_sonnet_btn
+                        align: CENTER
+                        text: "Sonnet ring: Off"
+                        text_font: font_small
+                  on_click:
+                    - lambda: 'id(show_sonnet) = !id(show_sonnet);'
+                    - lvgl.label.update:
+                        id: lbl_sonnet_btn
+                        text: !lambda 'return id(show_sonnet) ? std::string("Sonnet ring: On") : std::string("Sonnet ring: Off");'
+                    # show/hide the 3rd ring + its label
+                    - if:
+                        condition:
+                          lambda: 'return id(show_sonnet);'
+                        then:
+                          - lvgl.widget.show: arc_sonnet
+                          - lvgl.widget.show: lbl_sonnet
+                        else:
+                          - lvgl.widget.hide: arc_sonnet
+                          - lvgl.widget.hide: lbl_sonnet
