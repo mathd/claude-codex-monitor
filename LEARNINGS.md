@@ -129,6 +129,16 @@ prefixed** name.
 - An arc's **track** is drawn between `start_angle` and `end_angle`. Setting them
   equal (e.g. both 270) draws **nothing** — the track disappears. Use `0`→`360` for a
   full-circle track; the indicator fills based on `value`.
+- **LVGL clock hands = rotating `image:` widgets**, not meter line-indicators (those
+  are straight lines only — no Mercedes circle / lollipop). Set `pivot_x`/`pivot_y` to
+  the hand's base pixel and offset the widget so that pixel sits at the dial center;
+  rotate with `lvgl.image.update: {angle: <degrees>}` (angle is degrees 0–360).
+- **ESPHome `image:` can't embed base64** — only `file:` (local path) or an
+  `http(s)://` URL (fetched at compile). The HA ESPHome add-on resolves local paths
+  under `/config/esphome/`, so files in this repo aren't visible to it. We host the
+  hand PNGs at raw.githubusercontent.com (repo is public) so no Pi file copy is needed.
+- **Image `type:`** — `TRANSPARENT_IMAGE`/`RGBA` are deprecated. For white-on-
+  transparent PNGs use `type: RGB` + `transparency: alpha_channel`.
 - The whole-screen background is the LVGL `bottom_layer`, not just the page bg.
   For a tileview, also set each **tile**'s bg (and the tileview's) opaque — a
   per-arc `bg_color` only covers the area under the arcs, leaving the center white.
