@@ -55,15 +55,15 @@ time:
 interval:
   - interval: 1s
     then:
-      - lvgl.indicator.update:
+      - lvgl.image.update:
           id: clk_hour
-          value: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0; return (t.hour % 12) * 60 + t.minute;'
-      - lvgl.indicator.update:
+          angle: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return ((t.hour % 12) * 60 + t.minute) * 0.5f;'   # 360/720
+      - lvgl.image.update:
           id: clk_minute
-          value: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0; return t.minute * 60 + t.second;'
-      - lvgl.indicator.update:
+          angle: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return (t.minute * 60 + t.second) * 0.1f;'        # 360/3600
+      - lvgl.image.update:
           id: clk_second
-          value: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0; return t.second;'
+          angle: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return t.second * 6.0f;'                          # 360/60
 
   # Auto-switch tiles: clock when idle (both 5h sessions = 0%), to the active
   # provider when usage starts or crosses a 70%/90% threshold. Paused for 2 min
@@ -244,6 +244,21 @@ font:
   - file: "gfonts://Roboto@500"
     id: font_brand        # dial text (ROLEX-style block)
     size: 16
+
+# === Clock hand images (Explorer-style), rotated by the clock interval ===
+image:
+  - file: "images/hand_hour.png"
+    id: img_hour
+    type: TRANSPARENT_IMAGE
+  - file: "images/hand_minute.png"
+    id: img_minute
+    type: TRANSPARENT_IMAGE
+  - file: "images/hand_second.png"
+    id: img_second
+    type: TRANSPARENT_IMAGE
+  - file: "images/marker_triangle.png"
+    id: img_triangle
+    type: TRANSPARENT_IMAGE
 
 # === CST820 capacitive touch (I2C 0x15). Polling mode — the CST820's
 # interrupt line is unreliable in ESPHome, so we poll instead. ===
@@ -599,10 +614,10 @@ lvgl:
                         length: 12
                         width: 2
                         color: 0xAAAAAA
-                    # bold baton hour markers (12 majors). 3/6/9 get numerals drawn
-                    # on top; the batons sit just outside the numeral radius.
+                    # bold baton hour markers. range 0..11 with 12 ticks spreads
+                    # them evenly (0 and 12 would overlap at the top otherwise).
                     - range_from: 0
-                      range_to: 12
+                      range_to: 11
                       angle_range: 360
                       rotation: 270
                       ticks:
@@ -610,49 +625,11 @@ lvgl:
                         length: 26
                         width: 8
                         color: 0xFFFFFF
-                    # minute hand (0..3600 = minute*60+second), thick white
-                    - range_from: 0
-                      range_to: 3600
-                      angle_range: 360
-                      rotation: 270
-                      indicators:
-                        - line:
-                            id: clk_minute
-                            width: 11
-                            color: 0xFFFFFF
-                            length: 188
-                    # hour hand (0..720 = hour*60+minute), thicker, shorter
-                    - range_from: 0
-                      range_to: 720
-                      angle_range: 360
-                      rotation: 270
-                      indicators:
-                        - line:
-                            id: clk_hour
-                            width: 14
-                            color: 0xFFFFFF
-                            length: 108
-                    # thin second hand
-                    - range_from: 0
-                      range_to: 60
-                      angle_range: 360
-                      rotation: 270
-                      indicators:
-                        - line:
-                            id: clk_second
-                            width: 3
-                            color: 0xDDDDDD
-                            length: 205
-              # Triangle marker at 12 (Explorer signature) — drawn as a small obj
-              - obj:
+              # Triangle marker at 12 (Explorer signature)
+              - image:
+                  src: img_triangle
                   align: CENTER
-                  y: -196
-                  width: 26
-                  height: 22
-                  radius: 3
-                  bg_color: 0xFFFFFF
-                  bg_opa: COVER
-                  border_width: 0
+                  y: -198
               # 3 / 6 / 9 Arabic numerals
               - label:
                   align: CENTER
@@ -695,6 +672,29 @@ lvgl:
                   text: "EXPLORER"
                   text_color: 0xDDDDDD
                   text_font: font_brand
+              # --- Hands (rotating images, on top of dial text). pivot = the
+              #     hand's base pixel; y offset puts that pivot at the dial center. ---
+              - image:
+                  id: clk_hour
+                  src: img_hour
+                  align: CENTER
+                  y: -75            # 150/2 → base pixel lands at center
+                  pivot_x: 30
+                  pivot_y: 150
+              - image:
+                  id: clk_minute
+                  src: img_minute
+                  align: CENTER
+                  y: -105           # 210/2
+                  pivot_x: 20
+                  pivot_y: 210
+              - image:
+                  id: clk_second
+                  src: img_second
+                  align: CENTER
+                  y: -55            # pivot 170, image 230 → (230/2 - 170) = -55 offset
+                  pivot_x: 12
+                  pivot_y: 170
               # center cap (over the hands)
               - obj:
                   align: CENTER
