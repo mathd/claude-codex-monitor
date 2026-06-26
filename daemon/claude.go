@@ -2,8 +2,7 @@
 //
 // Reads usage from Anthropic's read-only OAuth usage endpoint (the same one the
 // Claude clients use) — NOT a billed inference call. Free, no rate-limit exposure,
-// and returns structured windows: five_hour (session), seven_day (weekly), and
-// seven_day_sonnet (the separate Sonnet weekly cap).
+// and returns structured windows: five_hour (session) and seven_day (weekly).
 //
 // Token from ~/.claude/.credentials.json (claudeAiOauth). If the access token is
 // rejected, refresh it via platform.claude.com and retry (writing the rotated
@@ -134,9 +133,8 @@ type claudeWindow struct {
 	ResetsAt    string  `json:"resets_at"` // RFC3339, may be null
 }
 type claudeUsageResp struct {
-	FiveHour       claudeWindow `json:"five_hour"`
-	SevenDay       claudeWindow `json:"seven_day"`
-	SevenDaySonnet claudeWindow `json:"seven_day_sonnet"`
+	FiveHour claudeWindow `json:"five_hour"`
+	SevenDay claudeWindow `json:"seven_day"`
 }
 
 func claudeGetUsage(ctx context.Context, token string) (*claudeUsageResp, int) {
@@ -210,8 +208,6 @@ func fetchUsage(ctx context.Context) *usage {
 		SessionResetMin: resetMinFromRFC3339(u.FiveHour.ResetsAt),
 		WeekPct:         pct(u.SevenDay.Utilization),
 		WeekResetMin:    resetMinFromRFC3339(u.SevenDay.ResetsAt),
-		SonnetPct:       pct(u.SevenDaySonnet.Utilization),
-		SonnetResetMin:  resetMinFromRFC3339(u.SevenDaySonnet.ResetsAt),
 		Ok:              true,
 	}
 }
