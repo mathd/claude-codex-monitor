@@ -46,6 +46,11 @@ api:
 ota:
   - platform: esphome
 
+# Time source (for the "clock time" reset format option)
+time:
+  - platform: sntp
+    id: sntp_time
+
 # --- I2C bus (shared: TCA9554 expander, CST820 touch, IMU, RTC) ---
 i2c:
   sda: GPIO15
@@ -181,6 +186,23 @@ font:
     id: font_small        # reset countdown
     size: 24
 
+# === CST820 capacitive touch (I2C 0x15). Polling mode — the CST820's
+# interrupt line is unreliable in ESPHome, so we poll instead. ===
+touchscreen:
+  - platform: cst816
+    id: my_touch
+    interrupt_pin: GPIO16
+    update_interval: 50ms
+    on_release:
+      - lvgl.widget.redraw
+
+# Persist the reset-time display format across reboots (false = "2h39m", true = clock time)
+globals:
+  - id: reset_show_clock
+    type: bool
+    restore_value: true
+    initial_value: 'false'
+
 # === Home Assistant sensors (published by the daemon over MQTT) ===
 # These pull the live values onto the device and update the arcs/labels.
 sensor:
@@ -233,7 +255,65 @@ sensor:
             text: !lambda |-
               static char b[24];
               int m = (int)x;
-              snprintf(b, sizeof(b), "reset %dh%02dm", m / 60, m % 60);
+              if (id(reset_show_clock)) {
+                // show wall-clock time of reset = now + m minutes
+                time_t t = ::time(nullptr) + (time_t)m * 60;
+                struct tm *lt = localtime(&t);
+                if (lt) { strftime(b, sizeof(b), "reset %H:%M", lt); }
+                else { snprintf(b, sizeof(b), "reset %dh%02dm", m/60, m%60); }
+              } else {
+                snprintf(b, sizeof(b), "reset %dh%02dm", m/60, m%60);
+              }
+              return b;
+
+  # --- Codex sensors (published by the daemon: codex_state topic) ---
+  - platform: homeassistant
+    id: ha_codex_session_pct
+    entity_id: sensor.claude_monitor_codex_session_usage
+    on_value:
+      then:
+        - lvgl.arc.update:
+            id: arc_codex_session
+            value: !lambda 'return x;'
+        - lvgl.label.update:
+            id: lbl_codex_pct
+            text: !lambda 'static char b[8]; snprintf(b, sizeof(b), "%d%%", (int)x); return b;'
+        - lvgl.arc.update:
+            id: arc_codex_session
+            indicator:
+              arc_color: !lambda |-
+                if (x >= 90) return Color(0xFF, 0x3B, 0x30);
+                if (x >= 70) return Color(0xFF, 0xB0, 0x00);
+                return Color(0x20, 0xD0, 0xD0);                // teal
+  - platform: homeassistant
+    id: ha_codex_week_pct
+    entity_id: sensor.claude_monitor_codex_weekly_usage
+    on_value:
+      then:
+        - lvgl.arc.update:
+            id: arc_codex_week
+            value: !lambda 'return x;'
+        - lvgl.label.update:
+            id: lbl_codex_week
+            text: !lambda 'static char b[16]; snprintf(b, sizeof(b), "week %d%%", (int)x); return b;'
+        - lvgl.arc.update:
+            id: arc_codex_week
+            indicator:
+              arc_color: !lambda |-
+                if (x >= 90) return Color(0xFF, 0x3B, 0x30);
+                if (x >= 70) return Color(0xFF, 0xB0, 0x00);
+                return Color(0xFF, 0xB0, 0x20);                // amber-gold
+  - platform: homeassistant
+    id: ha_codex_session_reset
+    entity_id: sensor.claude_monitor_codex_session_reset
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_codex_reset
+            text: !lambda |-
+              static char b[24];
+              int m = (int)x;
+              snprintf(b, sizeof(b), "reset %dh%02dm", m/60, m%60);
               return b;
 
 # === LVGL UI: two concentric arcs + center readout ===
@@ -244,85 +324,224 @@ lvgl:
   bottom_layer:
     bg_color: 0x000000
     bg_opa: COVER
-  pages:
-    - id: page_main
-      bg_color: 0x000000
-      bg_opa: COVER
-      widgets:
-        # Outer arc = weekly (blue)
-        - arc:
-            id: arc_week
-            align: CENTER
-            width: 470
-            height: 470
-            min_value: 0
-            max_value: 100
-            value: 4
-            start_angle: 0               # track spans the FULL circle
-            end_angle: 360
-            adjustable: false
-            bg_opa: TRANSP               # no filled disc behind the ring
-            border_width: 0
-            pad_all: 0
-            arc_rounded: true
-            arc_width: 26
-            arc_color: 0x203A5C          # visible dim-blue groove (unused part)
-            arc_opa: COVER
-            indicator:
-              arc_rounded: true
-              arc_width: 26
-              arc_color: 0x18B4FF        # bright cyan-blue (used part)
-        # Inner arc = session (green)
-        - arc:
-            id: arc_session
-            align: CENTER
-            width: 388
-            height: 388
-            min_value: 0
-            max_value: 100
-            value: 2
-            start_angle: 0
-            end_angle: 360
-            adjustable: false
-            bg_opa: TRANSP
-            border_width: 0
-            pad_all: 0
-            arc_rounded: true
-            arc_width: 26
-            arc_color: 0x1E5235          # visible dim-green groove (unused part)
-            arc_opa: COVER
-            indicator:
-              arc_rounded: true
-              arc_width: 26
-              arc_color: 0x2BE06A        # bright green (used part)
-        # Center: big session %
-        - label:
-            id: lbl_pct
-            align: CENTER
-            y: -34
-            text: "--%"
-            text_color: 0xFFFFFF
-            text_font: font_pct
-        # "Claude Code" subtitle
-        - label:
-            align: CENTER
-            y: 38
-            text: "Claude Code"
-            text_color: 0xBBBBBB
-            text_font: font_med
-        # weekly %
-        - label:
-            id: lbl_week
-            align: CENTER
-            y: 80
-            text: "week --%"
-            text_color: 0x00B0FF
-            text_font: font_small
-        # reset countdown
-        - label:
-            id: lbl_reset
-            align: CENTER
-            y: 112
-            text: "reset --"
-            text_color: 0x999999
-            text_font: font_small
+  # Swipe left/right between tiles: Claude → Codex → Settings
+  widgets:
+    - tileview:
+        id: tiles
+        bg_opa: TRANSP
+        tiles:
+          # ---------- Tile 0: Claude ----------
+          - id: tile_claude
+            row: 0
+            column: 0
+            dir: HOR
+            widgets:
+              - arc:
+                  id: arc_week
+                  align: CENTER
+                  width: 470
+                  height: 470
+                  min_value: 0
+                  max_value: 100
+                  value: 4
+                  start_angle: 0
+                  end_angle: 360
+                  adjustable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  arc_rounded: true
+                  arc_width: 26
+                  arc_color: 0x203A5C
+                  arc_opa: COVER
+                  indicator:
+                    arc_rounded: true
+                    arc_width: 26
+                    arc_color: 0x18B4FF
+              - arc:
+                  id: arc_session
+                  align: CENTER
+                  width: 388
+                  height: 388
+                  min_value: 0
+                  max_value: 100
+                  value: 2
+                  start_angle: 0
+                  end_angle: 360
+                  adjustable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  arc_rounded: true
+                  arc_width: 26
+                  arc_color: 0x1E5235
+                  arc_opa: COVER
+                  indicator:
+                    arc_rounded: true
+                    arc_width: 26
+                    arc_color: 0x2BE06A
+              - label:
+                  id: lbl_pct
+                  align: CENTER
+                  y: -34
+                  text: "--%"
+                  text_color: 0xFFFFFF
+                  text_font: font_pct
+              - label:
+                  align: CENTER
+                  y: 38
+                  text: "Claude Code"
+                  text_color: 0xBBBBBB
+                  text_font: font_med
+              - label:
+                  id: lbl_week
+                  align: CENTER
+                  y: 80
+                  text: "week --%"
+                  text_color: 0x00B0FF
+                  text_font: font_small
+              - label:
+                  id: lbl_reset
+                  align: CENTER
+                  y: 112
+                  text: "reset --"
+                  text_color: 0x999999
+                  text_font: font_small
+          # ---------- Tile 1: Codex (placeholder until daemon data lands) ----------
+          - id: tile_codex
+            row: 0
+            column: 1
+            dir: HOR
+            widgets:
+              - arc:
+                  id: arc_codex_week
+                  align: CENTER
+                  width: 470
+                  height: 470
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  start_angle: 0
+                  end_angle: 360
+                  adjustable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  arc_rounded: true
+                  arc_width: 26
+                  arc_color: 0x3A2A14
+                  arc_opa: COVER
+                  indicator:
+                    arc_rounded: true
+                    arc_width: 26
+                    arc_color: 0xFFB020
+              - arc:
+                  id: arc_codex_session
+                  align: CENTER
+                  width: 388
+                  height: 388
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  start_angle: 0
+                  end_angle: 360
+                  adjustable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  arc_rounded: true
+                  arc_width: 26
+                  arc_color: 0x14323A
+                  arc_opa: COVER
+                  indicator:
+                    arc_rounded: true
+                    arc_width: 26
+                    arc_color: 0x20D0D0
+              - label:
+                  id: lbl_codex_pct
+                  align: CENTER
+                  y: -34
+                  text: "--%"
+                  text_color: 0xFFFFFF
+                  text_font: font_pct
+              - label:
+                  align: CENTER
+                  y: 38
+                  text: "Codex"
+                  text_color: 0xBBBBBB
+                  text_font: font_med
+              - label:
+                  id: lbl_codex_week
+                  align: CENTER
+                  y: 80
+                  text: "week --%"
+                  text_color: 0x20D0D0
+                  text_font: font_small
+              - label:
+                  id: lbl_codex_reset
+                  align: CENTER
+                  y: 112
+                  text: "reset --"
+                  text_color: 0x999999
+                  text_font: font_small
+          # ---------- Tile 2: Settings ----------
+          - id: tile_settings
+            row: 0
+            column: 2
+            dir: HOR
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 70
+                  text: "Settings"
+                  text_color: 0xFFFFFF
+                  text_font: font_med
+              # Brightness label + slider
+              - label:
+                  id: lbl_bright
+                  align: CENTER
+                  y: -70
+                  text: "Brightness 100%"
+                  text_color: 0xBBBBBB
+                  text_font: font_small
+              - slider:
+                  id: sld_bright
+                  align: CENTER
+                  y: -30
+                  width: 280
+                  height: 18
+                  min_value: 10
+                  max_value: 100
+                  value: 100
+                  on_value:
+                    - light.turn_on:
+                        id: backlight
+                        brightness: !lambda 'return x / 100.0;'
+                    - lvgl.label.update:
+                        id: lbl_bright
+                        text: !lambda 'static char b[20]; snprintf(b, sizeof(b), "Brightness %d%%", (int)x); return b;'
+              # Reset-time format toggle
+              - label:
+                  align: CENTER
+                  y: 40
+                  text: "Reset format"
+                  text_color: 0xBBBBBB
+                  text_font: font_small
+              - button:
+                  id: btn_reset_fmt
+                  align: CENTER
+                  y: 80
+                  width: 220
+                  height: 50
+                  checkable: true
+                  widgets:
+                    - label:
+                        id: lbl_reset_fmt
+                        align: CENTER
+                        text: "Countdown"
+                        text_font: font_small
+                  on_click:
+                    - lambda: 'id(reset_show_clock) = !id(reset_show_clock);'
+                    - lvgl.label.update:
+                        id: lbl_reset_fmt
+                        text: !lambda 'return id(reset_show_clock) ? "Clock time" : "Countdown";'

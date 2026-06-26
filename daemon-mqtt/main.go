@@ -237,8 +237,9 @@ func fetchUsage(ctx context.Context, token string) *usage {
 
 // ---- MQTT + HA discovery ----
 
-func stateTopic(cfg config) string { return cfg.baseTopic + "/state" }
-func availTopic(cfg config) string { return cfg.baseTopic + "/availability" }
+func stateTopic(cfg config) string      { return cfg.baseTopic + "/state" }
+func availTopic(cfg config) string      { return cfg.baseTopic + "/availability" }
+func codexStateTopic(cfg config) string { return cfg.baseTopic + "/codex_state" }
 
 // haDevice is the shared device block so all sensors group under one HA device.
 func haDevice(cfg config) map[string]any {
@@ -256,25 +257,34 @@ type discoverySensor struct {
 	valueTmpl string // jinja against the state JSON
 	unit      string
 	icon      string
+	state     string // which state topic: "claude" or "codex"
 }
 
 func discoverySensors() []discoverySensor {
 	return []discoverySensor{
-		{"session_pct", "Claude Session Usage", "{{ value_json.session_pct }}", "%", "mdi:clock-fast"},
-		{"session_reset_min", "Claude Session Reset", "{{ value_json.session_reset_min }}", "min", "mdi:timer-sand"},
-		{"week_pct", "Claude Weekly Usage", "{{ value_json.week_pct }}", "%", "mdi:calendar-week"},
-		{"week_reset_min", "Claude Weekly Reset", "{{ value_json.week_reset_min }}", "min", "mdi:timer-sand"},
+		{"session_pct", "Claude Session Usage", "{{ value_json.session_pct }}", "%", "mdi:clock-fast", "claude"},
+		{"session_reset_min", "Claude Session Reset", "{{ value_json.session_reset_min }}", "min", "mdi:timer-sand", "claude"},
+		{"week_pct", "Claude Weekly Usage", "{{ value_json.week_pct }}", "%", "mdi:calendar-week", "claude"},
+		{"week_reset_min", "Claude Weekly Reset", "{{ value_json.week_reset_min }}", "min", "mdi:timer-sand", "claude"},
+		{"codex_session_pct", "Codex Session Usage", "{{ value_json.session_pct }}", "%", "mdi:clock-fast", "codex"},
+		{"codex_session_reset_min", "Codex Session Reset", "{{ value_json.session_reset_min }}", "min", "mdi:timer-sand", "codex"},
+		{"codex_week_pct", "Codex Weekly Usage", "{{ value_json.week_pct }}", "%", "mdi:calendar-week", "codex"},
+		{"codex_week_reset_min", "Codex Weekly Reset", "{{ value_json.week_reset_min }}", "min", "mdi:timer-sand", "codex"},
 	}
 }
 
 func publishDiscovery(client mqtt.Client, cfg config) {
 	dev := haDevice(cfg)
 	for _, s := range discoverySensors() {
+		st := stateTopic(cfg)
+		if s.state == "codex" {
+			st = codexStateTopic(cfg)
+		}
 		topic := fmt.Sprintf("%s/sensor/%s_%s/config", cfg.discoveryPre, cfg.deviceID, s.key)
 		payload := map[string]any{
 			"name":                s.name,
 			"unique_id":           cfg.deviceID + "_" + s.key,
-			"state_topic":         stateTopic(cfg),
+			"state_topic":         st,
 			"value_template":      s.valueTmpl,
 			"unit_of_measurement": s.unit,
 			"icon":                s.icon,
@@ -288,6 +298,15 @@ func publishDiscovery(client mqtt.Client, cfg config) {
 		}
 	}
 	log.Printf("Published HA discovery for %d sensors", len(discoverySensors()))
+}
+
+func publishCodexState(client mqtt.Client, cfg config, u *usage) {
+	b, _ := json.Marshal(u)
+	if t := client.Publish(codexStateTopic(cfg), 1, true, b); t.Wait() && t.Error() != nil {
+		log.Printf("codex state publish error: %v", t.Error())
+		return
+	}
+	log.Printf("Published codex: %s", b)
 }
 
 func publishState(client mqtt.Client, cfg config, u *usage) {
@@ -338,7 +357,9 @@ func main() {
 	ticker := time.NewTicker(cfg.pollInterval)
 	defer ticker.Stop()
 
+	var codexCached *usage
 	poll := func() {
+		// --- Claude ---
 		token, err := loadToken()
 		if err != nil {
 			log.Printf("Token error: %v", err)
@@ -348,18 +369,31 @@ func main() {
 			} else {
 				publishState(client, cfg, &usage{Ok: false})
 			}
-			return
-		}
-		u := fetchUsage(ctx, token)
-		if u != nil {
-			u.Stale = false
-			cached = u
-			publishState(client, cfg, u)
-		} else if cached != nil {
-			cached.Stale = true
-			publishState(client, cfg, cached)
 		} else {
-			publishState(client, cfg, &usage{Ok: false})
+			u := fetchUsage(ctx, token)
+			if u != nil {
+				u.Stale = false
+				cached = u
+				publishState(client, cfg, u)
+			} else if cached != nil {
+				cached.Stale = true
+				publishState(client, cfg, cached)
+			} else {
+				publishState(client, cfg, &usage{Ok: false})
+			}
+		}
+
+		// --- Codex (best-effort; absent if no ~/.codex/auth.json) ---
+		cu := fetchCodexUsage(ctx)
+		if cu != nil {
+			cu.Stale = false
+			codexCached = cu
+			publishCodexState(client, cfg, cu)
+		} else if codexCached != nil {
+			codexCached.Stale = true
+			publishCodexState(client, cfg, codexCached)
+		} else {
+			publishCodexState(client, cfg, &usage{Ok: false})
 		}
 	}
 
