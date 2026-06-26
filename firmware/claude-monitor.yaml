@@ -247,16 +247,16 @@ font:
 
 # === Clock hand images (Explorer-style), rotated by the clock interval ===
 image:
-  - file: "images/hand_hour.png"
+  - file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/hand_hour.png"
     id: img_hour
     type: TRANSPARENT_IMAGE
-  - file: "images/hand_minute.png"
+  - file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/hand_minute.png"
     id: img_minute
     type: TRANSPARENT_IMAGE
-  - file: "images/hand_second.png"
+  - file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/hand_second.png"
     id: img_second
     type: TRANSPARENT_IMAGE
-  - file: "images/marker_triangle.png"
+  - file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/marker_triangle.png"
     id: img_triangle
     type: TRANSPARENT_IMAGE
 
