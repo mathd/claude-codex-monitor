@@ -51,6 +51,20 @@ time:
   - platform: sntp
     id: sntp_time
 
+# Drive the Explorer clock hands once per second (smooth second hand).
+interval:
+  - interval: 1s
+    then:
+      - lvgl.indicator.update:
+          id: clk_hour
+          value: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0; return (t.hour % 12) * 60 + t.minute;'
+      - lvgl.indicator.update:
+          id: clk_minute
+          value: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0; return t.minute * 60 + t.second;'
+      - lvgl.indicator.update:
+          id: clk_second
+          value: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0; return t.second;'
+
 # --- I2C bus (shared: TCA9554 expander, CST820 touch, IMU, RTC) ---
 i2c:
   sda: GPIO15
@@ -185,6 +199,12 @@ font:
   - file: "gfonts://Roboto"
     id: font_small        # reset countdown
     size: 24
+  - file: "gfonts://Roboto@700"
+    id: font_num          # Explorer 3-6-9 numerals
+    size: 56
+  - file: "gfonts://Roboto@500"
+    id: font_brand        # dial text (ROLEX-style block)
+    size: 16
 
 # === CST820 capacitive touch (I2C 0x15). Polling mode — the CST820's
 # interrupt line is unreliable in ESPHome, so we poll instead. ===
@@ -535,10 +555,115 @@ lvgl:
                   text: "reset --"
                   text_color: 0x999999
                   text_font: font_small
-          # ---------- Tile 2: Settings ----------
-          - id: tile_settings
+          # ---------- Tile 2: Clock (Rolex Explorer I homage) ----------
+          - id: tile_clock
             row: 0
             column: 2
+            dir: HOR
+            bg_opa: TRANSP
+            widgets:
+              # The dial + hands via a meter widget.
+              - meter:
+                  id: clock_meter
+                  align: CENTER
+                  width: 480
+                  height: 480
+                  bg_opa: TRANSP
+                  border_width: 0
+                  text_color: 0xFFFFFF
+                  scales:
+                    # minute ticks around the rim
+                    - range_from: 0
+                      range_to: 60
+                      angle_range: 360
+                      rotation: 270
+                      ticks:
+                        count: 61
+                        length: 10
+                        width: 2
+                        color: 0x888888
+                    # minute hand on a 0..3600 scale (minute*60+second), white, long
+                    - range_from: 0
+                      range_to: 3600
+                      angle_range: 360
+                      rotation: 270
+                      indicators:
+                        - line:
+                            id: clk_minute
+                            width: 6
+                            color: 0xFFFFFF
+                            length: 200
+                    # hour hand on a 0..720 scale (12h*60), shorter, white
+                    - range_from: 0
+                      range_to: 720
+                      angle_range: 360
+                      rotation: 270
+                      indicators:
+                        - line:
+                            id: clk_hour
+                            width: 10
+                            color: 0xFFFFFF
+                            length: 135
+                    # second hand, thin, bright
+                    - range_from: 0
+                      range_to: 60
+                      angle_range: 360
+                      rotation: 270
+                      indicators:
+                        - line:
+                            id: clk_second
+                            width: 2
+                            color: 0xE8E8E8
+                            length: 215
+              # Triangle marker at 12 (Explorer signature)
+              - label:
+                  align: CENTER
+                  y: -178
+                  text: "▼"
+                  text_color: 0xFFFFFF
+                  text_font: font_med
+              # 3 / 6 / 9 Arabic numerals
+              - label:
+                  align: CENTER
+                  x: 168
+                  y: 0
+                  text: "3"
+                  text_color: 0xFFFFFF
+                  text_font: font_num
+              - label:
+                  align: CENTER
+                  x: 0
+                  y: 168
+                  text: "6"
+                  text_color: 0xFFFFFF
+                  text_font: font_num
+              - label:
+                  align: CENTER
+                  x: -168
+                  y: 0
+                  text: "9"
+                  text_color: 0xFFFFFF
+                  text_font: font_num
+              # Dial text block under 12
+              - label:
+                  align: CENTER
+                  y: -96
+                  text: "EXPLORER"
+                  text_color: 0xCCCCCC
+                  text_font: font_brand
+              # center cap
+              - obj:
+                  align: CENTER
+                  width: 18
+                  height: 18
+                  radius: 9
+                  bg_color: 0xFFFFFF
+                  bg_opa: COVER
+                  border_width: 0
+          # ---------- Tile 3: Settings ----------
+          - id: tile_settings
+            row: 0
+            column: 3
             dir: HOR
             bg_opa: TRANSP
             widgets:
