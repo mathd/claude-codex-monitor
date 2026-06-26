@@ -102,6 +102,9 @@ display:
     id: lcd
     spi_id: lcd_spi
     auto_clear_enabled: false     # LVGL owns the framebuffer
+    color_order: rgb              # panel MADCTL = RGB (demo 0x36,0x00)
+    invert_colors: false          # demo uses INVOFF (0x20)
+    pixel_mode: 18bit             # demo sets 0x3A=0x66 (RGB666); 16bit mismatch makes black->green
     dimensions:
       width: 480
       height: 480
@@ -168,15 +171,15 @@ display:
         - [0x36, 0x00]
 
 font:
-  - file: "gfonts://Roboto"
+  - file: "gfonts://Roboto@700"
     id: font_pct          # big center percentage
-    size: 72
-  - file: "gfonts://Roboto"
+    size: 88
+  - file: "gfonts://Roboto@500"
     id: font_med          # labels
-    size: 24
+    size: 30
   - file: "gfonts://Roboto"
     id: font_small        # reset countdown
-    size: 20
+    size: 24
 
 # === Home Assistant sensors (published by the daemon over MQTT) ===
 # These pull the live values onto the device and update the arcs/labels.
@@ -197,9 +200,9 @@ sensor:
             id: arc_session
             indicator:
               arc_color: !lambda |-
-                if (x >= 90) return Color(0xFF, 0x33, 0x22);   // red
-                if (x >= 70) return Color(0xFF, 0xAA, 0x00);   // amber
-                return Color(0x00, 0xCC, 0x44);                // green
+                if (x >= 90) return Color(0xFF, 0x3B, 0x30);   // red
+                if (x >= 70) return Color(0xFF, 0xB0, 0x00);   // amber
+                return Color(0x2B, 0xE0, 0x6A);                // bright green
 
   - platform: homeassistant
     id: ha_week_pct
@@ -216,9 +219,9 @@ sensor:
             id: arc_week
             indicator:
               arc_color: !lambda |-
-                if (x >= 90) return Color(0xFF, 0x33, 0x22);
-                if (x >= 70) return Color(0xFF, 0xAA, 0x00);
-                return Color(0x00, 0x80, 0xFF);                // blue (normal)
+                if (x >= 90) return Color(0xFF, 0x3B, 0x30);
+                if (x >= 70) return Color(0xFF, 0xB0, 0x00);
+                return Color(0x00, 0xB0, 0xFF);                // bright blue
 
   - platform: homeassistant
     id: ha_session_reset
@@ -237,75 +240,89 @@ sensor:
 lvgl:
   displays:
     - lcd
-  # arcs go full-circle; we drive only the indicator
+  # The bottom layer is painted behind every page — make it black.
+  bottom_layer:
+    bg_color: 0x000000
+    bg_opa: COVER
   pages:
     - id: page_main
       bg_color: 0x000000
+      bg_opa: COVER
       widgets:
         # Outer arc = weekly (blue)
         - arc:
             id: arc_week
             align: CENTER
-            width: 460
-            height: 460
+            width: 470
+            height: 470
             min_value: 0
             max_value: 100
-            value: 0
-            start_angle: 0
+            value: 4
+            start_angle: 0               # track spans the FULL circle
             end_angle: 360
             adjustable: false
-            bg_opa: TRANSP              # no filled disc — show only the ring
-            arc_width: 16
-            arc_color: 0x16213A         # dim track
+            bg_opa: TRANSP               # no filled disc behind the ring
+            border_width: 0
+            pad_all: 0
+            arc_rounded: true
+            arc_width: 26
+            arc_color: 0x203A5C          # visible dim-blue groove (unused part)
+            arc_opa: COVER
             indicator:
-              arc_width: 16
-              arc_color: 0x0080FF
+              arc_rounded: true
+              arc_width: 26
+              arc_color: 0x18B4FF        # bright cyan-blue (used part)
         # Inner arc = session (green)
         - arc:
             id: arc_session
             align: CENTER
-            width: 380
-            height: 380
+            width: 388
+            height: 388
             min_value: 0
             max_value: 100
-            value: 0
+            value: 2
             start_angle: 0
             end_angle: 360
             adjustable: false
-            bg_opa: TRANSP              # no filled disc — show only the ring
-            arc_width: 16
-            arc_color: 0x103020         # dim track
+            bg_opa: TRANSP
+            border_width: 0
+            pad_all: 0
+            arc_rounded: true
+            arc_width: 26
+            arc_color: 0x1E5235          # visible dim-green groove (unused part)
+            arc_opa: COVER
             indicator:
-              arc_width: 16
-              arc_color: 0x00CC44
+              arc_rounded: true
+              arc_width: 26
+              arc_color: 0x2BE06A        # bright green (used part)
         # Center: big session %
         - label:
             id: lbl_pct
             align: CENTER
-            y: -30
+            y: -34
             text: "--%"
             text_color: 0xFFFFFF
             text_font: font_pct
         # "Claude Code" subtitle
         - label:
             align: CENTER
-            y: 30
+            y: 38
             text: "Claude Code"
-            text_color: 0xAAAAAA
+            text_color: 0xBBBBBB
             text_font: font_med
         # weekly %
         - label:
             id: lbl_week
             align: CENTER
-            y: 66
+            y: 80
             text: "week --%"
-            text_color: 0x0080FF
+            text_color: 0x00B0FF
             text_font: font_small
         # reset countdown
         - label:
             id: lbl_reset
             align: CENTER
-            y: 96
+            y: 112
             text: "reset --"
-            text_color: 0x888888
+            text_color: 0x999999
             text_font: font_small
