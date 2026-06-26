@@ -239,9 +239,9 @@ font:
   - file: "gfonts://Roboto"
     id: font_small        # reset countdown
     size: 24
-  - file: "gfonts://Roboto@700"
-    id: font_num          # Explorer 3-6-9 numerals
-    size: 56
+  - file: "gfonts://Montserrat@600"
+    id: font_num          # Explorer 3-6-9 numerals (rounded geometric, like the dial)
+    size: 72
   - file: "gfonts://Roboto@500"
     id: font_brand        # dial text (ROLEX-style block)
     size: 16
@@ -668,7 +668,7 @@ lvgl:
               # 3 / 6 / 9 Arabic numerals
               - label:
                   align: CENTER
-                  x: 150
+                  x: 172
                   y: 0
                   text: "3"
                   text_color: 0xFFFFFF
@@ -676,13 +676,13 @@ lvgl:
               - label:
                   align: CENTER
                   x: 0
-                  y: 150
+                  y: 168
                   text: "6"
                   text_color: 0xFFFFFF
                   text_font: font_num
               - label:
                   align: CENTER
-                  x: -150
+                  x: -172
                   y: 0
                   text: "9"
                   text_color: 0xFFFFFF
