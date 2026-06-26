@@ -1,37 +1,68 @@
-# Claude Code Usage Monitor (Waveshare ESP32-S3-Touch-LCD-2.1)
+# Claude & Codex Usage Monitor
 
-A physical desk monitor showing live **Claude Code 5-hour session** and **weekly**
-usage on a 480×480 round touch LCD. Inspired by [Claudial](https://github.com/Moge800/Claudial).
+A physical desk monitor that shows your live **Claude Code** and **Codex** usage —
+5-hour session %, weekly %, and reset countdowns — on a 480×480 round touch LCD.
 
-![device](assets/device.jpg)
+Swipe between a **Claude** tile, a **Codex** tile, and a **Settings** tile.
+Arc colors shift green → amber → red as you approach your limits. No sound.
 
-## How it works
+Inspired by [Claudial](https://github.com/Moge800/Claudial); built for harder
+hardware (RGB-parallel panel) with a different data path (MQTT + Home Assistant).
+
+## Architecture
 
 ```
-PC daemon (reads Anthropic rate-limit headers via a tiny API call)
-        │  MQTT (+ Home Assistant auto-discovery)
+daemon/  (Go, runs on your PC / WSL)
+  • reads ~/.claude + ~/.codex credentials
+  • Claude:  tiny API call → rate-limit headers
+  • Codex:   refresh OAuth → wham/usage endpoint
+  • publishes to MQTT with HA auto-discovery
+        │ MQTT
         ▼
-Home Assistant  ──ESPHome native API──►  ESP32-S3-Touch-LCD-2.1
-                                          two-arc LVGL gauge UI
+  Home Assistant  (Mosquitto broker + sensors)
+        │ ESPHome native API (LAN)
+        ▼
+firmware/  (ESPHome, on the ESP32-S3)
+  • ST7701 480×480 round panel + CST820 touch
+  • LVGL tileview: Claude / Codex / Settings
 ```
 
-- **`daemon-mqtt/`** — Go daemon. Reads `~/.claude/.credentials.json`, calls the
-  Anthropic API every 60s, parses `anthropic-ratelimit-unified-5h/7d-*` headers,
-  publishes to MQTT with HA discovery. Runs as a systemd service in WSL.
-- **`claude-monitor.yaml`** — ESPHome firmware for the board (ST7701 RGB panel via
-  `mipi_rgb` + TCA9554 expander, CST820 touch, LVGL two-arc dashboard).
-- **`reference/`** — Waveshare's official demo (authoritative pins + ST7701 init seq).
-- **`PROJECT.md`** — build log, phases, and hardware quick-reference.
+Why this shape: there is **no official "remaining quota" API** for the Claude or
+Codex subscription plans. The real numbers come from rate-limit response headers
+(Claude) and the `wham/usage` endpoint (Codex), which require account credentials —
+so a host-side daemon does that and feeds the device. The ESP32 never holds any
+secrets. See [LEARNINGS.md](LEARNINGS.md) for the details.
 
-## Setup
+## Layout
 
-1. `daemon-mqtt/`: copy `.env.example` → `.env`, set broker + creds, build & run
-   (see `daemon-mqtt/README.md`).
-2. `claude-monitor.yaml`: set `secrets.yaml` (WiFi), flash via ESPHome.
-
-Secrets (`.env`, `secrets.yaml`) are gitignored.
+| Path | What |
+|------|------|
+| [`firmware/`](firmware/) | ESPHome config for the device (display, touch, LVGL UI) |
+| [`daemon/`](daemon/) | Go daemon: reads usage, publishes to MQTT |
+| [`docs/hardware/`](docs/hardware/) | Board datasheet/manual PDF |
+| [`docs/reference/`](docs/reference/) | Waveshare's official demo (authoritative pins + ST7701 init sequence) |
+| [`LEARNINGS.md`](LEARNINGS.md) | Hard-won, non-obvious facts (read this before debugging) |
+| [`CLAUDE.md`](CLAUDE.md) | Orientation for AI agents working in this repo |
 
 ## Hardware
 
-Waveshare ESP32-S3-Touch-LCD-2.1: ESP32-S3R8, 480×480 round IPS, ST7701S (RGB),
-CST820 touch, TCA9554 expander, 8MB PSRAM. See `PROJECT.md` for the full pinout.
+**Waveshare ESP32-S3-Touch-LCD-2.1** — ESP32-S3R8 (8MB PSRAM, 16MB flash),
+2.1" 480×480 round IPS, **ST7701S** driver over **RGB-parallel**, **CST820**
+capacitive touch, **TCA9554** I/O expander, onboard IMU/RTC/buzzer.
+
+## Quick start
+
+1. **Daemon** (`daemon/`): copy `.env.example` → `.env`, set your MQTT broker +
+   credentials, then run it (or install the systemd service). Requires `claude login`
+   and, for the Codex tile, `~/.codex/auth.json`. See [daemon/README.md](daemon/README.md).
+2. **Firmware** (`firmware/`): copy `secrets.yaml.example` → `secrets.yaml`, set
+   WiFi, then flash with ESPHome. See [firmware/README.md](firmware/README.md).
+3. The 8 sensors (Claude + Codex) auto-appear in Home Assistant; the device reads
+   them over the ESPHome native API.
+
+## Status
+
+Working: Claude + Codex live data, touch/swipe tiles, on-device brightness +
+reset-format settings, daemon as a persistent systemd service.
+
+See [PROJECT.md](PROJECT.md) for the build phases and history.

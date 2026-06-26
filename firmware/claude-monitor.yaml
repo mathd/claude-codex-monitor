@@ -1,0 +1,547 @@
+# ===================================================================
+# Phase 1: Light the screen — ESP32-S3-Touch-LCD-2.1 (Waveshare)
+# Goal: confirm the ST7701 panel initializes and shows text.
+# No Claude data yet — that comes in Phase 3/4.
+#
+# Pins, init sequence, and the TCA9554 expander wiring are taken
+# from Waveshare's official demo (Display_ST7701.cpp / TCA9554PWR).
+#   ST7701 reset = TCA9554 EXIO1  (expander pin 1)
+#   ST7701 CS    = TCA9554 EXIO3  (expander pin 3)
+#   Backlight    = GPIO6 (PWM)
+#   Init SPI     = CLK GPIO2, MOSI GPIO1
+# ===================================================================
+
+esphome:
+  name: claude-monitor
+  friendly_name: Claude Monitor
+  on_boot:
+    priority: -100              # run late, after display + backlight are set up
+    then:
+      - light.turn_on:
+          id: backlight
+          brightness: 100%
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf          # RGB panel + PSRAM needs esp-idf, not arduino
+  flash_size: 16MB
+
+psram:
+  mode: octal              # ESP32-S3R8 = octal PSRAM
+  speed: 80MHz
+
+logger:
+  level: DEBUG
+
+# --- WiFi: needed for OTA + later HA/MQTT. Fill in your creds. ---
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:                       # fallback hotspot if wifi fails
+    ssid: "Claude-Monitor Setup"
+
+captive_portal:
+api:
+ota:
+  - platform: esphome
+
+# Time source (for the "clock time" reset format option)
+time:
+  - platform: sntp
+    id: sntp_time
+
+# --- I2C bus (shared: TCA9554 expander, CST820 touch, IMU, RTC) ---
+i2c:
+  sda: GPIO15
+  scl: GPIO7
+  frequency: 400kHz
+  scan: true                 # prints found device addresses at boot (expect 0x20)
+
+# --- TCA9554 I/O expander: drives the panel reset + CS lines ---
+# NOTE: ESPHome pin numbers are 0-indexed bits. The vendor demo's "EXIO_PINn"
+# maps to bit (n-1):  EXIO1=reset=bit0, EXIO3=CS=bit2, EXIO8=enable=bit7.
+pca9554:
+  - id: tca9554_expander
+    address: 0x20
+
+# The demo drives expander pin 8 (bit 7) LOW at boot — a panel enable line.
+# Without it the panel stays dark. Replicate via a switch turned off at boot.
+switch:
+  - platform: gpio
+    id: panel_enable
+    name: "Panel Enable (EXIO8)"
+    restore_mode: ALWAYS_OFF      # OFF = LOW, matching Set_EXIO(EXIO_PIN8, Low)
+    pin:
+      pca9554: tca9554_expander
+      number: 7
+      mode:
+        output: true
+
+# --- Backlight on GPIO6 (PWM via LEDC) ---
+output:
+  - platform: ledc
+    pin: GPIO6
+    id: backlight_output
+    frequency: 20000Hz
+
+light:
+  - platform: monochromatic
+    output: backlight_output
+    name: "Backlight"
+    id: backlight
+    restore_mode: ALWAYS_ON
+
+# --- SPI bus used ONLY to send the ST7701 init sequence (3-wire) ---
+# Software SPI because there's no MISO and CS is on the I2C expander.
+spi:
+  - id: lcd_spi
+    clk_pin: GPIO2
+    mosi_pin: GPIO1
+    interface: software
+
+# --- The ST7701 RGB panel ---
+display:
+  - platform: mipi_rgb
+    model: ST7701S
+    id: lcd
+    spi_id: lcd_spi
+    auto_clear_enabled: false     # LVGL owns the framebuffer
+    color_order: rgb              # panel MADCTL = RGB (demo 0x36,0x00)
+    invert_colors: false          # demo uses INVOFF (0x20)
+    pixel_mode: 18bit             # demo sets 0x3A=0x66 (RGB666); 16bit mismatch makes black->green
+    dimensions:
+      width: 480
+      height: 480
+    spi_mode: MODE0
+    data_rate: 40MHz
+    cs_pin:
+      pca9554: tca9554_expander
+      number: 2                   # demo EXIO3 = bit 2
+    reset_pin:
+      pca9554: tca9554_expander
+      number: 0                   # demo EXIO1 = bit 0
+    # RGB parallel pixel bus
+    de_pin: GPIO40
+    pclk_pin: GPIO41
+    hsync_pin: GPIO38
+    vsync_pin: GPIO39
+    pclk_frequency: 16MHz
+    pclk_inverted: false
+    data_pins:
+      blue:  [GPIO5,  GPIO45, GPIO48, GPIO47, GPIO21]
+      green: [GPIO14, GPIO13, GPIO12, GPIO11, GPIO10, GPIO9]
+      red:   [GPIO46, GPIO3,  GPIO8,  GPIO18, GPIO17]
+    hsync_pulse_width: 8
+    hsync_back_porch: 10
+    hsync_front_porch: 50
+    vsync_pulse_width: 3
+    vsync_back_porch: 8
+    vsync_front_porch: 8
+    init_sequence:
+        - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x10]
+        - [0xC0, 0x3B, 0x00]
+        - [0xC1, 0x0B, 0x02]
+        - [0xC2, 0x07, 0x02]
+        - [0xCC, 0x10]
+        - [0xCD, 0x08]
+        - [0xB0, 0x00, 0x11, 0x16, 0x0E, 0x11, 0x06, 0x05, 0x09, 0x08, 0x21, 0x06, 0x13, 0x10, 0x29, 0x31, 0x18]
+        - [0xB1, 0x00, 0x11, 0x16, 0x0E, 0x11, 0x07, 0x05, 0x09, 0x09, 0x21, 0x05, 0x13, 0x11, 0x2A, 0x31, 0x18]
+        - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x11]
+        - [0xB0, 0x6D]
+        - [0xB1, 0x37]
+        - [0xB2, 0x81]
+        - [0xB3, 0x80]
+        - [0xB5, 0x43]
+        - [0xB7, 0x85]
+        - [0xB8, 0x20]
+        - [0xC1, 0x78]
+        - [0xC2, 0x78]
+        - [0xD0, 0x88]
+        - [0xE0, 0x00, 0x00, 0x02]
+        - [0xE1, 0x03, 0xA0, 0x00, 0x00, 0x04, 0xA0, 0x00, 0x00, 0x00, 0x20, 0x20]
+        - [0xE2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        - [0xE3, 0x00, 0x00, 0x11, 0x00]
+        - [0xE4, 0x22, 0x00]
+        - [0xE5, 0x05, 0xEC, 0xA0, 0xA0, 0x07, 0xEE, 0xA0, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        - [0xE6, 0x00, 0x00, 0x11, 0x00]
+        - [0xE7, 0x22, 0x00]
+        - [0xE8, 0x06, 0xED, 0xA0, 0xA0, 0x08, 0xEF, 0xA0, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        - [0xEB, 0x00, 0x00, 0x40, 0x40, 0x00, 0x00, 0x00]
+        - [0xED, 0xFF, 0xFF, 0xFF, 0xBA, 0x0A, 0xBF, 0x45, 0xFF, 0xFF, 0x54, 0xFB, 0xA0, 0xAB, 0xFF, 0xFF, 0xFF]
+        - [0xEF, 0x10, 0x0D, 0x04, 0x08, 0x3F, 0x1F]
+        - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x13]
+        - [0xEF, 0x08]
+        - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x00]
+        - [0x36, 0x00]
+
+font:
+  - file: "gfonts://Roboto@700"
+    id: font_pct          # big center percentage
+    size: 88
+  - file: "gfonts://Roboto@500"
+    id: font_med          # labels
+    size: 30
+  - file: "gfonts://Roboto"
+    id: font_small        # reset countdown
+    size: 24
+
+# === CST820 capacitive touch (I2C 0x15). Polling mode — the CST820's
+# interrupt line is unreliable in ESPHome, so we poll instead. ===
+touchscreen:
+  - platform: cst816
+    id: my_touch
+    interrupt_pin: GPIO16
+    update_interval: 50ms
+    on_release:
+      - lvgl.widget.redraw
+
+# Persist the reset-time display format across reboots (false = "2h39m", true = clock time)
+globals:
+  - id: reset_show_clock
+    type: bool
+    restore_value: true
+    initial_value: 'false'
+
+# === Home Assistant sensors (published by the daemon over MQTT) ===
+# These pull the live values onto the device and update the arcs/labels.
+sensor:
+  - platform: homeassistant
+    id: ha_session_pct
+    entity_id: sensor.claude_monitor_claude_session_usage
+    on_value:
+      then:
+        - lvgl.arc.update:
+            id: arc_session
+            value: !lambda 'return x;'
+        - lvgl.label.update:
+            id: lbl_pct
+            text: !lambda 'static char b[8]; snprintf(b, sizeof(b), "%d%%", (int)x); return b;'
+        # color the inner arc green/amber/red by usage
+        - lvgl.arc.update:
+            id: arc_session
+            indicator:
+              arc_color: !lambda |-
+                if (x >= 90) return Color(0xFF, 0x3B, 0x30);   // red
+                if (x >= 70) return Color(0xFF, 0xB0, 0x00);   // amber
+                return Color(0x2B, 0xE0, 0x6A);                // bright green
+
+  - platform: homeassistant
+    id: ha_week_pct
+    entity_id: sensor.claude_monitor_claude_weekly_usage
+    on_value:
+      then:
+        - lvgl.arc.update:
+            id: arc_week
+            value: !lambda 'return x;'
+        - lvgl.label.update:
+            id: lbl_week
+            text: !lambda 'static char b[16]; snprintf(b, sizeof(b), "week %d%%", (int)x); return b;'
+        - lvgl.arc.update:
+            id: arc_week
+            indicator:
+              arc_color: !lambda |-
+                if (x >= 90) return Color(0xFF, 0x3B, 0x30);
+                if (x >= 70) return Color(0xFF, 0xB0, 0x00);
+                return Color(0x00, 0xB0, 0xFF);                // bright blue
+
+  - platform: homeassistant
+    id: ha_session_reset
+    entity_id: sensor.claude_monitor_claude_session_reset
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_reset
+            text: !lambda |-
+              static char b[24];
+              int m = (int)x;
+              if (id(reset_show_clock)) {
+                // show wall-clock time of reset = now + m minutes
+                time_t t = ::time(nullptr) + (time_t)m * 60;
+                struct tm *lt = localtime(&t);
+                if (lt) { strftime(b, sizeof(b), "reset %H:%M", lt); }
+                else { snprintf(b, sizeof(b), "reset %dh%02dm", m/60, m%60); }
+              } else {
+                snprintf(b, sizeof(b), "reset %dh%02dm", m/60, m%60);
+              }
+              return b;
+
+  # --- Codex sensors (published by the daemon: codex_state topic) ---
+  - platform: homeassistant
+    id: ha_codex_session_pct
+    entity_id: sensor.claude_monitor_codex_session_usage
+    on_value:
+      then:
+        - lvgl.arc.update:
+            id: arc_codex_session
+            value: !lambda 'return x;'
+        - lvgl.label.update:
+            id: lbl_codex_pct
+            text: !lambda 'static char b[8]; snprintf(b, sizeof(b), "%d%%", (int)x); return b;'
+        - lvgl.arc.update:
+            id: arc_codex_session
+            indicator:
+              arc_color: !lambda |-
+                if (x >= 90) return Color(0xFF, 0x3B, 0x30);
+                if (x >= 70) return Color(0xFF, 0xB0, 0x00);
+                return Color(0x20, 0xD0, 0xD0);                // teal
+  - platform: homeassistant
+    id: ha_codex_week_pct
+    entity_id: sensor.claude_monitor_codex_weekly_usage
+    on_value:
+      then:
+        - lvgl.arc.update:
+            id: arc_codex_week
+            value: !lambda 'return x;'
+        - lvgl.label.update:
+            id: lbl_codex_week
+            text: !lambda 'static char b[16]; snprintf(b, sizeof(b), "week %d%%", (int)x); return b;'
+        - lvgl.arc.update:
+            id: arc_codex_week
+            indicator:
+              arc_color: !lambda |-
+                if (x >= 90) return Color(0xFF, 0x3B, 0x30);
+                if (x >= 70) return Color(0xFF, 0xB0, 0x00);
+                return Color(0xFF, 0xB0, 0x20);                // amber-gold
+  - platform: homeassistant
+    id: ha_codex_session_reset
+    entity_id: sensor.claude_monitor_codex_session_reset
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_codex_reset
+            text: !lambda |-
+              static char b[24];
+              int m = (int)x;
+              snprintf(b, sizeof(b), "reset %dh%02dm", m/60, m%60);
+              return b;
+
+# === LVGL UI: two concentric arcs + center readout ===
+lvgl:
+  displays:
+    - lcd
+  # The bottom layer is painted behind every page — make it black.
+  bottom_layer:
+    bg_color: 0x000000
+    bg_opa: COVER
+  # Swipe left/right between tiles: Claude → Codex → Settings
+  widgets:
+    - tileview:
+        id: tiles
+        bg_opa: TRANSP
+        tiles:
+          # ---------- Tile 0: Claude ----------
+          - id: tile_claude
+            row: 0
+            column: 0
+            dir: HOR
+            widgets:
+              - arc:
+                  id: arc_week
+                  align: CENTER
+                  width: 470
+                  height: 470
+                  min_value: 0
+                  max_value: 100
+                  value: 4
+                  start_angle: 0
+                  end_angle: 360
+                  adjustable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  arc_rounded: true
+                  arc_width: 26
+                  arc_color: 0x203A5C
+                  arc_opa: COVER
+                  indicator:
+                    arc_rounded: true
+                    arc_width: 26
+                    arc_color: 0x18B4FF
+              - arc:
+                  id: arc_session
+                  align: CENTER
+                  width: 388
+                  height: 388
+                  min_value: 0
+                  max_value: 100
+                  value: 2
+                  start_angle: 0
+                  end_angle: 360
+                  adjustable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  arc_rounded: true
+                  arc_width: 26
+                  arc_color: 0x1E5235
+                  arc_opa: COVER
+                  indicator:
+                    arc_rounded: true
+                    arc_width: 26
+                    arc_color: 0x2BE06A
+              - label:
+                  id: lbl_pct
+                  align: CENTER
+                  y: -34
+                  text: "--%"
+                  text_color: 0xFFFFFF
+                  text_font: font_pct
+              - label:
+                  align: CENTER
+                  y: 38
+                  text: "Claude Code"
+                  text_color: 0xBBBBBB
+                  text_font: font_med
+              - label:
+                  id: lbl_week
+                  align: CENTER
+                  y: 80
+                  text: "week --%"
+                  text_color: 0x00B0FF
+                  text_font: font_small
+              - label:
+                  id: lbl_reset
+                  align: CENTER
+                  y: 112
+                  text: "reset --"
+                  text_color: 0x999999
+                  text_font: font_small
+          # ---------- Tile 1: Codex (placeholder until daemon data lands) ----------
+          - id: tile_codex
+            row: 0
+            column: 1
+            dir: HOR
+            widgets:
+              - arc:
+                  id: arc_codex_week
+                  align: CENTER
+                  width: 470
+                  height: 470
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  start_angle: 0
+                  end_angle: 360
+                  adjustable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  arc_rounded: true
+                  arc_width: 26
+                  arc_color: 0x3A2A14
+                  arc_opa: COVER
+                  indicator:
+                    arc_rounded: true
+                    arc_width: 26
+                    arc_color: 0xFFB020
+              - arc:
+                  id: arc_codex_session
+                  align: CENTER
+                  width: 388
+                  height: 388
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  start_angle: 0
+                  end_angle: 360
+                  adjustable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  arc_rounded: true
+                  arc_width: 26
+                  arc_color: 0x14323A
+                  arc_opa: COVER
+                  indicator:
+                    arc_rounded: true
+                    arc_width: 26
+                    arc_color: 0x20D0D0
+              - label:
+                  id: lbl_codex_pct
+                  align: CENTER
+                  y: -34
+                  text: "--%"
+                  text_color: 0xFFFFFF
+                  text_font: font_pct
+              - label:
+                  align: CENTER
+                  y: 38
+                  text: "Codex"
+                  text_color: 0xBBBBBB
+                  text_font: font_med
+              - label:
+                  id: lbl_codex_week
+                  align: CENTER
+                  y: 80
+                  text: "week --%"
+                  text_color: 0x20D0D0
+                  text_font: font_small
+              - label:
+                  id: lbl_codex_reset
+                  align: CENTER
+                  y: 112
+                  text: "reset --"
+                  text_color: 0x999999
+                  text_font: font_small
+          # ---------- Tile 2: Settings ----------
+          - id: tile_settings
+            row: 0
+            column: 2
+            dir: HOR
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 70
+                  text: "Settings"
+                  text_color: 0xFFFFFF
+                  text_font: font_med
+              # Brightness label + slider
+              - label:
+                  id: lbl_bright
+                  align: CENTER
+                  y: -70
+                  text: "Brightness 100%"
+                  text_color: 0xBBBBBB
+                  text_font: font_small
+              - slider:
+                  id: sld_bright
+                  align: CENTER
+                  y: -30
+                  width: 280
+                  height: 18
+                  min_value: 10
+                  max_value: 100
+                  value: 100
+                  on_value:
+                    - light.turn_on:
+                        id: backlight
+                        brightness: !lambda 'return x / 100.0;'
+                    - lvgl.label.update:
+                        id: lbl_bright
+                        text: !lambda 'static char b[20]; snprintf(b, sizeof(b), "Brightness %d%%", (int)x); return b;'
+              # Reset-time format toggle
+              - label:
+                  align: CENTER
+                  y: 40
+                  text: "Reset format"
+                  text_color: 0xBBBBBB
+                  text_font: font_small
+              - button:
+                  id: btn_reset_fmt
+                  align: CENTER
+                  y: 80
+                  width: 220
+                  height: 50
+                  checkable: true
+                  widgets:
+                    - label:
+                        id: lbl_reset_fmt
+                        align: CENTER
+                        text: "Countdown"
+                        text_font: font_small
+                  on_click:
+                    - lambda: 'id(reset_show_clock) = !id(reset_show_clock);'
+                    - lvgl.label.update:
+                        id: lbl_reset_fmt
+                        text: !lambda 'return id(reset_show_clock) ? "Clock time" : "Countdown";'

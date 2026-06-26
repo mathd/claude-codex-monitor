@@ -1,0 +1,16 @@
+[Unit]
+Description=Claude Code usage monitor daemon (MQTT)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mathieu
+WorkingDirectory=/home/mathieu/sources/Waveshare/daemon
+EnvironmentFile=/home/mathieu/sources/Waveshare/daemon/.env
+ExecStart=/home/mathieu/sources/Waveshare/daemon/claude-monitor-daemon
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
