@@ -65,6 +65,38 @@ interval:
           id: clk_second
           value: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0; return t.second;'
 
+  # Auto-switch tiles: clock when idle (both 5h sessions = 0%), to the active
+  # provider when usage starts or crosses a 70%/90% threshold. Paused for 2 min
+  # after any manual touch so it never fights a swipe.
+  - interval: 2s
+    then:
+      - lambda: |-
+          static int prev_c = 0, prev_x = 0;   // previous Claude / Codex session %
+          static int cur_tile = 0;             // tile we last selected
+          int c = id(claude_session_pct);
+          int x = id(codex_session_pct);
+          bool paused = (millis() - id(last_touch_ms)) < 120000;  // 2 min after touch
+
+          auto crossed = [](int prev, int now) {
+            // rose above 0, or crossed the 70 or 90 thresholds upward
+            return (prev == 0 && now > 0) ||
+                   (prev < 70 && now >= 70) ||
+                   (prev < 90 && now >= 90);
+          };
+
+          int target = -1;  // -1 = leave as-is
+          if (!paused) {
+            if (crossed(prev_c, c))      target = 0;  // Claude tile (wins if both)
+            else if (crossed(prev_x, x)) target = 1;  // Codex tile
+            else if (c == 0 && x == 0)   target = 2;  // idle -> clock
+          }
+          prev_c = c; prev_x = x;
+
+          if (target >= 0 && target != cur_tile) {
+            lv_tileview_set_tile_by_index(id(tiles)->obj, target, 0, LV_ANIM_ON);
+            cur_tile = target;
+          }
+
 # --- I2C bus (shared: TCA9554 expander, CST820 touch, IMU, RTC) ---
 i2c:
   sda: GPIO15
@@ -215,6 +247,8 @@ touchscreen:
     update_interval: 50ms
     on_release:
       - lvgl.widget.redraw
+      # Pause auto-switch for a bit after any manual touch (so it doesn't fight swipes).
+      - lambda: 'id(last_touch_ms) = millis();'
 
 # Persist the reset-time display format across reboots (false = "2h39m", true = clock time)
 globals:
@@ -222,6 +256,16 @@ globals:
     type: bool
     restore_value: true
     initial_value: 'false'
+  # --- auto-switch state ---
+  - id: claude_session_pct   # latest Claude 5h %
+    type: int
+    initial_value: '0'
+  - id: codex_session_pct    # latest Codex 5h %
+    type: int
+    initial_value: '0'
+  - id: last_touch_ms        # millis() of last manual touch (pauses auto-switch)
+    type: uint32_t
+    initial_value: '0'
 
 # === Home Assistant sensors (published by the daemon over MQTT) ===
 # These pull the live values onto the device and update the arcs/labels.
@@ -231,6 +275,7 @@ sensor:
     entity_id: sensor.claude_monitor_claude_session_usage
     on_value:
       then:
+        - lambda: 'id(claude_session_pct) = (int)x;'
         - lvgl.arc.update:
             id: arc_session
             value: !lambda 'return x;'
@@ -292,6 +337,7 @@ sensor:
     entity_id: sensor.claude_monitor_codex_session_usage
     on_value:
       then:
+        - lambda: 'id(codex_session_pct) = (int)x;'
         - lvgl.arc.update:
             id: arc_codex_session
             value: !lambda 'return x;'
@@ -348,7 +394,8 @@ lvgl:
   widgets:
     - tileview:
         id: tiles
-        bg_opa: TRANSP
+        bg_color: 0x000000
+        bg_opa: COVER
         tiles:
           # ---------- Tile 0: Claude ----------
           # Two rings (outer→inner): weekly (blue), session (green)
@@ -356,7 +403,8 @@ lvgl:
             row: 0
             column: 0
             dir: HOR
-            bg_opa: TRANSP
+            bg_color: 0x000000
+            bg_opa: COVER
             widgets:
               - arc:
                   id: arc_week
@@ -436,7 +484,8 @@ lvgl:
             row: 0
             column: 1
             dir: HOR
-            bg_opa: TRANSP
+            bg_color: 0x000000
+            bg_opa: COVER
             widgets:
               - arc:
                   id: arc_codex_week
@@ -514,7 +563,8 @@ lvgl:
             row: 0
             column: 2
             dir: HOR
-            bg_opa: TRANSP
+            bg_color: 0x000000
+            bg_opa: COVER
             widgets:
               # The dial + hands via a meter widget.
               - meter:
@@ -619,7 +669,8 @@ lvgl:
             row: 0
             column: 3
             dir: HOR
-            bg_opa: TRANSP
+            bg_color: 0x000000
+            bg_opa: COVER
             widgets:
               - label:
                   align: TOP_MID
