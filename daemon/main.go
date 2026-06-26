@@ -129,6 +129,7 @@ func discoverySensors() []discoverySensor {
 		{"session_reset_min", "Claude Session Reset", "{{ value_json.session_reset_min }}", "min", "mdi:timer-sand", "claude"},
 		{"week_pct", "Claude Weekly Usage", "{{ value_json.week_pct }}", "%", "mdi:calendar-week", "claude"},
 		{"week_reset_min", "Claude Weekly Reset", "{{ value_json.week_reset_min }}", "min", "mdi:timer-sand", "claude"},
+		{"sonnet_pct", "Claude Sonnet Weekly Usage", "{{ value_json.sonnet_pct }}", "%", "mdi:calendar-week", "claude"},
 		{"codex_session_pct", "Codex Session Usage", "{{ value_json.session_pct }}", "%", "mdi:clock-fast", "codex"},
 		{"codex_session_reset_min", "Codex Session Reset", "{{ value_json.session_reset_min }}", "min", "mdi:timer-sand", "codex"},
 		{"codex_week_pct", "Codex Weekly Usage", "{{ value_json.week_pct }}", "%", "mdi:calendar-week", "codex"},

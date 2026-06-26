@@ -246,6 +246,25 @@ sensor:
                 return Color(0x00, 0xB0, 0xFF);                // bright blue
 
   - platform: homeassistant
+    id: ha_sonnet_pct
+    entity_id: sensor.claude_monitor_claude_sonnet_weekly_usage
+    on_value:
+      then:
+        - lvgl.arc.update:
+            id: arc_sonnet
+            value: !lambda 'return x;'
+        - lvgl.label.update:
+            id: lbl_sonnet
+            text: !lambda 'static char b[16]; snprintf(b, sizeof(b), "sonnet %d%%", (int)x); return b;'
+        - lvgl.arc.update:
+            id: arc_sonnet
+            indicator:
+              arc_color: !lambda |-
+                if (x >= 90) return Color(0xFF, 0x3B, 0x30);
+                if (x >= 70) return Color(0xFF, 0xB0, 0x00);
+                return Color(0xB0, 0x60, 0xFF);                // purple
+
+  - platform: homeassistant
     id: ha_session_reset
     entity_id: sensor.claude_monitor_claude_session_reset
     on_value:
@@ -331,16 +350,18 @@ lvgl:
         bg_opa: TRANSP
         tiles:
           # ---------- Tile 0: Claude ----------
+          # Three rings (outer→inner): weekly (blue), session (green), sonnet (purple)
           - id: tile_claude
             row: 0
             column: 0
             dir: HOR
+            bg_opa: TRANSP
             widgets:
               - arc:
                   id: arc_week
                   align: CENTER
-                  width: 470
-                  height: 470
+                  width: 472
+                  height: 472
                   min_value: 0
                   max_value: 100
                   value: 4
@@ -351,18 +372,18 @@ lvgl:
                   border_width: 0
                   pad_all: 0
                   arc_rounded: true
-                  arc_width: 26
+                  arc_width: 20
                   arc_color: 0x203A5C
                   arc_opa: COVER
                   indicator:
                     arc_rounded: true
-                    arc_width: 26
+                    arc_width: 20
                     arc_color: 0x18B4FF
               - arc:
                   id: arc_session
                   align: CENTER
-                  width: 388
-                  height: 388
+                  width: 396
+                  height: 396
                   min_value: 0
                   max_value: 100
                   value: 2
@@ -373,37 +394,66 @@ lvgl:
                   border_width: 0
                   pad_all: 0
                   arc_rounded: true
-                  arc_width: 26
+                  arc_width: 20
                   arc_color: 0x1E5235
                   arc_opa: COVER
                   indicator:
                     arc_rounded: true
-                    arc_width: 26
+                    arc_width: 20
                     arc_color: 0x2BE06A
+              - arc:
+                  id: arc_sonnet
+                  align: CENTER
+                  width: 320
+                  height: 320
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  start_angle: 0
+                  end_angle: 360
+                  adjustable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  arc_rounded: true
+                  arc_width: 20
+                  arc_color: 0x2A2140
+                  arc_opa: COVER
+                  indicator:
+                    arc_rounded: true
+                    arc_width: 20
+                    arc_color: 0xB060FF
               - label:
                   id: lbl_pct
                   align: CENTER
-                  y: -34
+                  y: -40
                   text: "--%"
                   text_color: 0xFFFFFF
                   text_font: font_pct
               - label:
                   align: CENTER
-                  y: 38
+                  y: 28
                   text: "Claude Code"
                   text_color: 0xBBBBBB
                   text_font: font_med
               - label:
                   id: lbl_week
                   align: CENTER
-                  y: 80
+                  y: 64
                   text: "week --%"
                   text_color: 0x00B0FF
                   text_font: font_small
               - label:
+                  id: lbl_sonnet
+                  align: CENTER
+                  y: 92
+                  text: "sonnet --%"
+                  text_color: 0xB060FF
+                  text_font: font_small
+              - label:
                   id: lbl_reset
                   align: CENTER
-                  y: 112
+                  y: 120
                   text: "reset --"
                   text_color: 0x999999
                   text_font: font_small
@@ -412,6 +462,7 @@ lvgl:
             row: 0
             column: 1
             dir: HOR
+            bg_opa: TRANSP
             widgets:
               - arc:
                   id: arc_codex_week
@@ -489,6 +540,7 @@ lvgl:
             row: 0
             column: 2
             dir: HOR
+            bg_opa: TRANSP
             widgets:
               - label:
                   align: TOP_MID
