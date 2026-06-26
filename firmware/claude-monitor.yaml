@@ -70,15 +70,14 @@ interval:
   # after any manual touch so it never fights a swipe.
   - interval: 2s
     then:
+      # Decide the target tile (writes id(switch_target): -1 = no change, else column)
       - lambda: |-
           static int prev_c = 0, prev_x = 0;   // previous Claude / Codex session %
-          static int cur_tile = 0;             // tile we last selected
           int c = id(claude_session_pct);
           int x = id(codex_session_pct);
           bool paused = (millis() - id(last_touch_ms)) < 120000;  // 2 min after touch
 
           auto crossed = [](int prev, int now) {
-            // rose above 0, or crossed the 70 or 90 thresholds upward
             return (prev == 0 && now > 0) ||
                    (prev < 70 && now >= 70) ||
                    (prev < 90 && now >= 90);
@@ -92,10 +91,18 @@ interval:
           }
           prev_c = c; prev_x = x;
 
-          if (target >= 0 && target != cur_tile) {
-            lv_tileview_set_tile_by_index(id(tiles)->obj, target, 0, LV_ANIM_ON);
-            cur_tile = target;
-          }
+          if (target >= 0 && target == id(cur_tile)) target = -1;  // already there
+          id(switch_target) = target;
+      - if:
+          condition:
+            lambda: 'return id(switch_target) >= 0;'
+          then:
+            - lvgl.tileview.select:
+                id: tiles
+                row: 0
+                column: !lambda 'return id(switch_target);'
+                animated: true
+            - lambda: 'id(cur_tile) = id(switch_target);'
 
 # --- I2C bus (shared: TCA9554 expander, CST820 touch, IMU, RTC) ---
 i2c:
@@ -266,6 +273,12 @@ globals:
   - id: last_touch_ms        # millis() of last manual touch (pauses auto-switch)
     type: uint32_t
     initial_value: '0'
+  - id: cur_tile             # last tile the auto-switch selected (column)
+    type: int
+    initial_value: '0'
+  - id: switch_target        # auto-switch decision: -1 = none, else target column
+    type: int
+    initial_value: '-1'
 
 # === Home Assistant sensors (published by the daemon over MQTT) ===
 # These pull the live values onto the device and update the arcs/labels.

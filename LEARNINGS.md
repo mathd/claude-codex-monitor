@@ -130,6 +130,13 @@ prefixed** name.
   equal (e.g. both 270) draws **nothing** — the track disappears. Use `0`→`360` for a
   full-circle track; the indicator fills based on `value`.
 - The whole-screen background is the LVGL `bottom_layer`, not just the page bg.
+  For a tileview, also set each **tile**'s bg (and the tileview's) opaque — a
+  per-arc `bg_color` only covers the area under the arcs, leaving the center white.
+- **Don't call raw `lv_*` functions on a widget's `->obj` from a lambda.** ESPHome's
+  lambda context only forward-declares `lv_obj_t` (incomplete type) → compile error
+  "invalid use of incomplete type". Use the ESPHome **actions** instead, e.g.
+  `lvgl.tileview.select: {id, row, column}` (column accepts a `!lambda`) rather than
+  `lv_tileview_set_tile_by_index(id(tv)->obj, ...)`.
 - A `text: !lambda` that returns a **ternary of two string literals**
   (`cond ? "A" : "B"`) fails to compile: the result is `const char*`, and ESPHome
   calls `.c_str()` on it. Wrap a branch in `std::string(...)` so the expression's type
