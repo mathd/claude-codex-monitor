@@ -599,15 +599,16 @@ lvgl:
                         length: 12
                         width: 2
                         color: 0xAAAAAA
-                    # bold baton hour markers (12 majors)
+                    # bold baton hour markers (12 majors). 3/6/9 get numerals drawn
+                    # on top; the batons sit just outside the numeral radius.
                     - range_from: 0
                       range_to: 12
                       angle_range: 360
                       rotation: 270
                       ticks:
                         count: 12
-                        length: 34
-                        width: 9
+                        length: 26
+                        width: 8
                         color: 0xFFFFFF
                     # minute hand (0..3600 = minute*60+second), thick white
                     - range_from: 0
@@ -630,7 +631,7 @@ lvgl:
                             id: clk_hour
                             width: 14
                             color: 0xFFFFFF
-                            length: 128
+                            length: 108
                     # thin second hand
                     - range_from: 0
                       range_to: 60
@@ -674,31 +675,25 @@ lvgl:
                   text: "9"
                   text_color: 0xFFFFFF
                   text_font: font_num
-              # Crown/brand text block (upper dial)
+              # Crown/brand text block (upper dial, clear of the hands)
               - label:
                   align: CENTER
-                  y: -120
+                  y: -108
                   text: "ROLEX"
                   text_color: 0xFFFFFF
-                  text_font: font_med
-              - label:
-                  align: CENTER
-                  y: -88
-                  text: "OYSTER PERPETUAL"
-                  text_color: 0xCCCCCC
                   text_font: font_brand
-              # EXPLORER + chronometer text (lower dial, above 6)
               - label:
                   align: CENTER
-                  y: 96
+                  y: -86
+                  text: "OYSTER PERPETUAL"
+                  text_color: 0xBBBBBB
+                  text_font: font_brand
+              # EXPLORER text (lower dial, above 6 — kept clear of the hands)
+              - label:
+                  align: CENTER
+                  y: 84
                   text: "EXPLORER"
                   text_color: 0xDDDDDD
-                  text_font: font_brand
-              - label:
-                  align: CENTER
-                  y: 116
-                  text: "SUPERLATIVE CHRONOMETER"
-                  text_color: 0x888888
                   text_font: font_brand
               # center cap (over the hands)
               - obj:
