@@ -123,3 +123,8 @@ prefixed** name.
   equal (e.g. both 270) draws **nothing** — the track disappears. Use `0`→`360` for a
   full-circle track; the indicator fills based on `value`.
 - The whole-screen background is the LVGL `bottom_layer`, not just the page bg.
+- A `text: !lambda` that returns a **ternary of two string literals**
+  (`cond ? "A" : "B"`) fails to compile: the result is `const char*`, and ESPHome
+  calls `.c_str()` on it. Wrap a branch in `std::string(...)` so the expression's type
+  is `std::string`. (A `static char b[]; snprintf(...); return b;` lambda is fine —
+  ESPHome has a `const char*` overload; only the bare-literal ternary trips it.)

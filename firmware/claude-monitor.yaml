@@ -544,4 +544,4 @@ lvgl:
                     - lambda: 'id(reset_show_clock) = !id(reset_show_clock);'
                     - lvgl.label.update:
                         id: lbl_reset_fmt
-                        text: !lambda 'return id(reset_show_clock) ? "Clock time" : "Countdown";'
+                        text: !lambda 'return id(reset_show_clock) ? std::string("Clock time") : std::string("Countdown");'
