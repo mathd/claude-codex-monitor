@@ -1,0 +1,150 @@
+# ===================================================================
+# Board: ESP32-S3-Touch-LCD-2.1 (Waveshare) — ST7701 RGB panel,
+# TCA9554 expander, CST820 touch.
+#
+# Pins, init sequence, and the TCA9554 expander wiring are taken
+# from Waveshare's official demo (Display_ST7701.cpp / TCA9554PWR).
+#   ST7701 reset = TCA9554 EXIO1  (expander pin 1)
+#   ST7701 CS    = TCA9554 EXIO3  (expander pin 3)
+#   Backlight    = GPIO6 (PWM)
+#   Init SPI     = CLK GPIO2, MOSI GPIO1
+# ===================================================================
+
+# --- I2C bus (shared: TCA9554 expander, CST820 touch, IMU, RTC) ---
+i2c:
+  sda: GPIO15
+  scl: GPIO7
+  frequency: 400kHz
+  scan: true                 # prints found device addresses at boot (expect 0x20)
+
+# --- TCA9554 I/O expander: drives the panel reset + CS lines ---
+# NOTE: ESPHome pin numbers are 0-indexed bits. The vendor demo's "EXIO_PINn"
+# maps to bit (n-1):  EXIO1=reset=bit0, EXIO3=CS=bit2, EXIO8=enable=bit7.
+pca9554:
+  - id: tca9554_expander
+    address: 0x20
+
+# The demo drives expander pin 8 (bit 7) LOW at boot — a panel enable line.
+# Without it the panel stays dark. Replicate via a switch turned off at boot.
+switch:
+  - platform: gpio
+    id: panel_enable
+    name: "Panel Enable (EXIO8)"
+    restore_mode: ALWAYS_OFF      # OFF = LOW, matching Set_EXIO(EXIO_PIN8, Low)
+    pin:
+      pca9554: tca9554_expander
+      number: 7
+      mode:
+        output: true
+
+# --- Backlight on GPIO6 (PWM via LEDC) ---
+output:
+  - platform: ledc
+    pin: GPIO6
+    id: backlight_output
+    frequency: 20000Hz
+
+light:
+  - platform: monochromatic
+    output: backlight_output
+    name: "Backlight"
+    id: backlight
+    restore_mode: ALWAYS_ON
+
+# --- SPI bus used ONLY to send the ST7701 init sequence (3-wire) ---
+# Software SPI because there's no MISO and CS is on the I2C expander.
+spi:
+  - id: lcd_spi
+    clk_pin: GPIO2
+    mosi_pin: GPIO1
+    interface: software
+
+# --- The ST7701 RGB panel ---
+display:
+  - platform: mipi_rgb
+    model: ST7701S
+    id: lcd
+    spi_id: lcd_spi
+    auto_clear_enabled: false     # LVGL owns the framebuffer
+    color_order: rgb              # panel MADCTL = RGB (demo 0x36,0x00)
+    invert_colors: false          # demo uses INVOFF (0x20)
+    pixel_mode: 18bit             # demo sets 0x3A=0x66 (RGB666); 16bit mismatch makes black->green
+    dimensions:
+      width: 480
+      height: 480
+    spi_mode: MODE0
+    data_rate: 40MHz
+    cs_pin:
+      pca9554: tca9554_expander
+      number: 2                   # demo EXIO3 = bit 2
+    reset_pin:
+      pca9554: tca9554_expander
+      number: 0                   # demo EXIO1 = bit 0
+    # RGB parallel pixel bus
+    de_pin: GPIO40
+    pclk_pin: GPIO41
+    hsync_pin: GPIO38
+    vsync_pin: GPIO39
+    pclk_frequency: 12MHz         # lowered from 16MHz to reduce PSRAM-bandwidth shimmer
+    pclk_inverted: true           # flip clock edge — fixes constant RGB shimmer/tearing on ST7701
+    data_pins:
+      blue:  [GPIO5,  GPIO45, GPIO48, GPIO47, GPIO21]
+      green: [GPIO14, GPIO13, GPIO12, GPIO11, GPIO10, GPIO9]
+      red:   [GPIO46, GPIO3,  GPIO8,  GPIO18, GPIO17]
+    hsync_pulse_width: 8
+    hsync_back_porch: 10
+    hsync_front_porch: 50
+    vsync_pulse_width: 3
+    vsync_back_porch: 8
+    vsync_front_porch: 8
+    init_sequence:
+        - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x10]
+        - [0xC0, 0x3B, 0x00]
+        - [0xC1, 0x0B, 0x02]
+        - [0xC2, 0x07, 0x02]
+        - [0xCC, 0x10]
+        - [0xCD, 0x08]
+        - [0xB0, 0x00, 0x11, 0x16, 0x0E, 0x11, 0x06, 0x05, 0x09, 0x08, 0x21, 0x06, 0x13, 0x10, 0x29, 0x31, 0x18]
+        - [0xB1, 0x00, 0x11, 0x16, 0x0E, 0x11, 0x07, 0x05, 0x09, 0x09, 0x21, 0x05, 0x13, 0x11, 0x2A, 0x31, 0x18]
+        - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x11]
+        - [0xB0, 0x6D]
+        - [0xB1, 0x37]
+        - [0xB2, 0x81]
+        - [0xB3, 0x80]
+        - [0xB5, 0x43]
+        - [0xB7, 0x85]
+        - [0xB8, 0x20]
+        - [0xC1, 0x78]
+        - [0xC2, 0x78]
+        - [0xD0, 0x88]
+        - [0xE0, 0x00, 0x00, 0x02]
+        - [0xE1, 0x03, 0xA0, 0x00, 0x00, 0x04, 0xA0, 0x00, 0x00, 0x00, 0x20, 0x20]
+        - [0xE2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        - [0xE3, 0x00, 0x00, 0x11, 0x00]
+        - [0xE4, 0x22, 0x00]
+        - [0xE5, 0x05, 0xEC, 0xA0, 0xA0, 0x07, 0xEE, 0xA0, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        - [0xE6, 0x00, 0x00, 0x11, 0x00]
+        - [0xE7, 0x22, 0x00]
+        - [0xE8, 0x06, 0xED, 0xA0, 0xA0, 0x08, 0xEF, 0xA0, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        - [0xEB, 0x00, 0x00, 0x40, 0x40, 0x00, 0x00, 0x00]
+        - [0xED, 0xFF, 0xFF, 0xFF, 0xBA, 0x0A, 0xBF, 0x45, 0xFF, 0xFF, 0x54, 0xFB, 0xA0, 0xAB, 0xFF, 0xFF, 0xFF]
+        - [0xEF, 0x10, 0x0D, 0x04, 0x08, 0x3F, 0x1F]
+        - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x13]
+        - [0xEF, 0x08]
+        - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x00]
+        - [0x36, 0x00]
+
+# === CST820 capacitive touch (I2C 0x15). Polling mode — the CST820's
+# interrupt line is unreliable in ESPHome, so we poll instead. ===
+touchscreen:
+  - platform: cst816
+    id: my_touch
+    interrupt_pin: GPIO16
+    update_interval: 50ms
+    on_release:
+      - lvgl.widget.redraw
+    on_touch:
+      - script.execute:
+          id: ui_on_touch
+          x: !lambda 'return touch.x;'
+          y: !lambda 'return touch.y;'

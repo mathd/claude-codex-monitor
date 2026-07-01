@@ -1,0 +1,60 @@
+# ===================================================================
+# Home Assistant transport (values published by the daemon over MQTT,
+# pulled onto the device via the native API).
+#
+# Thin wrappers: each sensor converts HA's float to the shared scripts'
+# int convention (-1 = unavailable) and delegates to common/ui.yaml.
+# NAN = HA pushed "unavailable" (daemon's MQTT will fired, e.g. the
+# computer went to sleep). Casting NAN to int is UB and paints garbage
+# like "-214748%" — the NAN check lives here, where NAN originates.
+# ===================================================================
+
+sensor:
+  - platform: homeassistant
+    id: ha_session_pct
+    entity_id: sensor.claude_monitor_claude_session_usage
+    on_value:
+      - script.execute:
+          id: set_claude_session
+          pct: !lambda 'return std::isnan(x) ? -1 : (int) x;'
+
+  - platform: homeassistant
+    id: ha_week_pct
+    entity_id: sensor.claude_monitor_claude_weekly_usage
+    on_value:
+      - script.execute:
+          id: set_claude_week
+          pct: !lambda 'return std::isnan(x) ? -1 : (int) x;'
+
+  - platform: homeassistant
+    id: ha_session_reset
+    entity_id: sensor.claude_monitor_claude_session_reset
+    on_value:
+      - script.execute:
+          id: set_claude_reset
+          minutes: !lambda 'return std::isnan(x) ? -1 : (int) x;'
+
+  # --- Codex sensors (published by the daemon: codex_state topic) ---
+  - platform: homeassistant
+    id: ha_codex_session_pct
+    entity_id: sensor.claude_monitor_codex_session_usage
+    on_value:
+      - script.execute:
+          id: set_codex_session
+          pct: !lambda 'return std::isnan(x) ? -1 : (int) x;'
+
+  - platform: homeassistant
+    id: ha_codex_week_pct
+    entity_id: sensor.claude_monitor_codex_weekly_usage
+    on_value:
+      - script.execute:
+          id: set_codex_week
+          pct: !lambda 'return std::isnan(x) ? -1 : (int) x;'
+
+  - platform: homeassistant
+    id: ha_codex_session_reset
+    entity_id: sensor.claude_monitor_codex_session_reset
+    on_value:
+      - script.execute:
+          id: set_codex_reset
+          minutes: !lambda 'return std::isnan(x) ? -1 : (int) x;'

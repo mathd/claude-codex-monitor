@@ -125,6 +125,25 @@ creates the entity as `sensor.claude_monitor_claude_session_usage` (device name 
 object id). The ESPHome `homeassistant` sensor `entity_id:` must use the **full
 prefixed** name.
 
+### HA "unavailable" reaches the device as NAN — guard every on_value
+When the daemon dies (PC asleep), its MQTT Last Will marks the sensors
+**unavailable** in HA, and ESPHome's `homeassistant` sensor delivers that as a
+float **NAN** to `on_value`. Casting NAN to int is UB on Xtensa — labels render
+garbage like `-214748%` / `reset 35791394h`. Every handler must branch on
+`std::isnan(x)`; we treat unavailable as "idle" (pct globals = 0, labels `--%`),
+which is also what lets the auto-switch fall back to the clock tile. Corollary:
+don't detect staleness by "time since last update" — HA only pushes on *change*,
+so a steady 34% would look stale. The unavailable→NAN push is the reliable signal.
+
+### Auto-switch pitfalls (tileview)
+- `millis() - last_touch_ms < pause` is true at boot when `last_touch_ms == 0` —
+  the device boots "paused" and the first 0→N crossing arrives during that window.
+  Update the prev-value trackers **only when unpaused**, or crossings during a
+  pause are consumed silently and the switch never fires.
+- Finger swipes change tiles without going through any automation. Track the
+  current tile with the tileview's `on_value` trigger (variable `tile`, an
+  `lv_obj_t*` comparable against tile ids — codegen declares tiles as `lv_obj_t*`).
+
 ### LVGL arc gotchas
 - An arc's **track** is drawn between `start_angle` and `end_angle`. Setting them
   equal (e.g. both 270) draws **nothing** — the track disappears. Use `0`→`360` for a
