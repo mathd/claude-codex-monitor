@@ -201,7 +201,7 @@ a throwaway BLE advertise sketch) before committing to the plan's office leg.
 
 | # | Phase | Depends on | Status |
 |---|---|---|---|
-| 1 | Packages refactor + scripts (2.1) | — | **done 2026-07-01** — validated with `esphome config` (2026.6.4); resolved-config diff vs the monolith shows only the intended script indirection. Remaining: OTA to the 2.1 and eyeball the tiles. NOTE: the ESPHome dashboard needs the `common/` and `boards/` subdirectories copied alongside `claude-monitor.yaml` (includes are relative). |
+| 1 | Packages refactor + scripts (2.1) | — | **done 2026-07-01, confirmed on device** (OTA'd, tiles/arcs/nav verified). Deploy note: the ESPHome add-on dir needs `common/` and `boards/` alongside `claude-monitor.yaml` — pull via wget from GitHub raw in the HA web terminal (no SSH on the Pi). |
 | 2 | GATT contract | — | designed above; freeze when Phase 4 starts |
 | R | Office-Mac BLE permission check | — | **do early — cheap, kills the plan if it fails** |
 | 3 | 1.85B bring-up | board purchased | blocked on purchase |
