@@ -46,21 +46,21 @@ script:
             lambda: 'return pct < 0;'
           then:
             - lambda: 'id(claude_session_pct) = 0;'
-            - lvgl.arc.update:
-                id: arc_session
-                value: 0
-            - lvgl.label.update:
-                id: lbl_pct
-                text: "--%"
+            - lvgl.arc.update: { id: arc_session, value: 0 }
+            - lvgl.arc.update: { id: arc_cmb_claude_session, value: 0 }
+            - lvgl.label.update: { id: lbl_pct, text: "--%" }
+            - lvgl.label.update: { id: lbl_cmb_claude_pct, text: "--%" }
           else:
             - lambda: 'id(claude_session_pct) = pct;'
-            - lvgl.arc.update:
-                id: arc_session
-                value: !lambda 'return pct;'
+            - lvgl.arc.update: { id: arc_session, value: !lambda 'return pct;' }
+            - lvgl.arc.update: { id: arc_cmb_claude_session, value: !lambda 'return pct;' }
             - lvgl.label.update:
                 id: lbl_pct
                 text: !lambda 'static char b[8]; snprintf(b, sizeof(b), "%d%%", pct); return b;'
-            # color the inner arc green/amber/red by usage
+            - lvgl.label.update:
+                id: lbl_cmb_claude_pct
+                text: !lambda 'static char b[8]; snprintf(b, sizeof(b), "%d%%", pct); return b;'
+            # color the inner arc green/amber/red by usage (both tiles)
             - lvgl.arc.update:
                 id: arc_session
                 indicator:
@@ -68,6 +68,13 @@ script:
                     if (pct >= 90) return Color(0xFF, 0x3B, 0x30);   // red
                     if (pct >= 70) return Color(0xFF, 0xB0, 0x00);   // amber
                     return Color(0x2B, 0xE0, 0x6A);                  // bright green
+            - lvgl.arc.update:
+                id: arc_cmb_claude_session
+                indicator:
+                  arc_color: !lambda |-
+                    if (pct >= 90) return Color(0xFF, 0x3B, 0x30);
+                    if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
+                    return Color(0x2B, 0xE0, 0x6A);
 
   - id: set_claude_week
     parameters:
@@ -77,19 +84,19 @@ script:
           condition:
             lambda: 'return pct < 0;'
           then:
-            - lvgl.arc.update:
-                id: arc_week
-                value: 0
-            - lvgl.label.update:
-                id: lbl_week
-                text: "week --%"
+            - lvgl.arc.update: { id: arc_week, value: 0 }
+            - lvgl.arc.update: { id: arc_cmb_claude_week, value: 0 }
+            - lvgl.label.update: { id: lbl_week, text: "week --%" }
+            - lvgl.label.update: { id: lbl_cmb_claude_week, text: "wk --%" }
           else:
-            - lvgl.arc.update:
-                id: arc_week
-                value: !lambda 'return pct;'
+            - lvgl.arc.update: { id: arc_week, value: !lambda 'return pct;' }
+            - lvgl.arc.update: { id: arc_cmb_claude_week, value: !lambda 'return pct;' }
             - lvgl.label.update:
                 id: lbl_week
                 text: !lambda 'static char b[16]; snprintf(b, sizeof(b), "week %d%%", pct); return b;'
+            - lvgl.label.update:
+                id: lbl_cmb_claude_week
+                text: !lambda 'static char b[16]; snprintf(b, sizeof(b), "wk %d%%", pct); return b;'
             - lvgl.arc.update:
                 id: arc_week
                 indicator:
@@ -97,6 +104,13 @@ script:
                     if (pct >= 90) return Color(0xFF, 0x3B, 0x30);
                     if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
                     return Color(0x00, 0xB0, 0xFF);                  // bright blue
+            - lvgl.arc.update:
+                id: arc_cmb_claude_week
+                indicator:
+                  arc_color: !lambda |-
+                    if (pct >= 90) return Color(0xFF, 0x3B, 0x30);
+                    if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
+                    return Color(0x00, 0xB0, 0xFF);
 
   - id: set_claude_reset
     parameters:
@@ -118,6 +132,22 @@ script:
               snprintf(b, sizeof(b), "reset %dh%02dm", m/60, m%60);
             }
             return b;
+      # Combined tile: same value, no "reset " prefix to save width.
+      - lvgl.label.update:
+          id: lbl_cmb_claude_reset
+          text: !lambda |-
+            static char b[16];
+            if (minutes < 0) { snprintf(b, sizeof(b), "--"); return b; }
+            int m = minutes;
+            if (id(reset_show_clock)) {
+              time_t t = ::time(nullptr) + (time_t)m * 60;
+              struct tm *lt = localtime(&t);
+              if (lt) { strftime(b, sizeof(b), "%H:%M", lt); }
+              else { snprintf(b, sizeof(b), "%dh%02dm", m/60, m%60); }
+            } else {
+              snprintf(b, sizeof(b), "%dh%02dm", m/60, m%60);
+            }
+            return b;
 
   - id: set_codex_session
     parameters:
@@ -128,19 +158,19 @@ script:
             lambda: 'return pct < 0;'
           then:
             - lambda: 'id(codex_session_pct) = 0;'
-            - lvgl.arc.update:
-                id: arc_codex_session
-                value: 0
-            - lvgl.label.update:
-                id: lbl_codex_pct
-                text: "--%"
+            - lvgl.arc.update: { id: arc_codex_session, value: 0 }
+            - lvgl.arc.update: { id: arc_cmb_codex_session, value: 0 }
+            - lvgl.label.update: { id: lbl_codex_pct, text: "--%" }
+            - lvgl.label.update: { id: lbl_cmb_codex_pct, text: "--%" }
           else:
             - lambda: 'id(codex_session_pct) = pct;'
-            - lvgl.arc.update:
-                id: arc_codex_session
-                value: !lambda 'return pct;'
+            - lvgl.arc.update: { id: arc_codex_session, value: !lambda 'return pct;' }
+            - lvgl.arc.update: { id: arc_cmb_codex_session, value: !lambda 'return pct;' }
             - lvgl.label.update:
                 id: lbl_codex_pct
+                text: !lambda 'static char b[8]; snprintf(b, sizeof(b), "%d%%", pct); return b;'
+            - lvgl.label.update:
+                id: lbl_cmb_codex_pct
                 text: !lambda 'static char b[8]; snprintf(b, sizeof(b), "%d%%", pct); return b;'
             - lvgl.arc.update:
                 id: arc_codex_session
@@ -149,6 +179,13 @@ script:
                     if (pct >= 90) return Color(0xFF, 0x3B, 0x30);
                     if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
                     return Color(0x20, 0xD0, 0xD0);                  // teal
+            - lvgl.arc.update:
+                id: arc_cmb_codex_session
+                indicator:
+                  arc_color: !lambda |-
+                    if (pct >= 90) return Color(0xFF, 0x3B, 0x30);
+                    if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
+                    return Color(0x20, 0xD0, 0xD0);
 
   - id: set_codex_week
     parameters:
@@ -158,19 +195,19 @@ script:
           condition:
             lambda: 'return pct < 0;'
           then:
-            - lvgl.arc.update:
-                id: arc_codex_week
-                value: 0
-            - lvgl.label.update:
-                id: lbl_codex_week
-                text: "week --%"
+            - lvgl.arc.update: { id: arc_codex_week, value: 0 }
+            - lvgl.arc.update: { id: arc_cmb_codex_week, value: 0 }
+            - lvgl.label.update: { id: lbl_codex_week, text: "week --%" }
+            - lvgl.label.update: { id: lbl_cmb_codex_week, text: "wk --%" }
           else:
-            - lvgl.arc.update:
-                id: arc_codex_week
-                value: !lambda 'return pct;'
+            - lvgl.arc.update: { id: arc_codex_week, value: !lambda 'return pct;' }
+            - lvgl.arc.update: { id: arc_cmb_codex_week, value: !lambda 'return pct;' }
             - lvgl.label.update:
                 id: lbl_codex_week
                 text: !lambda 'static char b[16]; snprintf(b, sizeof(b), "week %d%%", pct); return b;'
+            - lvgl.label.update:
+                id: lbl_cmb_codex_week
+                text: !lambda 'static char b[16]; snprintf(b, sizeof(b), "wk %d%%", pct); return b;'
             - lvgl.arc.update:
                 id: arc_codex_week
                 indicator:
@@ -178,6 +215,13 @@ script:
                     if (pct >= 90) return Color(0xFF, 0x3B, 0x30);
                     if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
                     return Color(0xFF, 0xB0, 0x20);                  // amber-gold
+            - lvgl.arc.update:
+                id: arc_cmb_codex_week
+                indicator:
+                  arc_color: !lambda |-
+                    if (pct >= 90) return Color(0xFF, 0x3B, 0x30);
+                    if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
+                    return Color(0xFF, 0xB0, 0x20);
 
   # NOTE: unlike Claude's, the Codex reset label intentionally ignores the
   # reset_show_clock toggle — countdown only (matches pre-refactor behavior).
@@ -192,6 +236,15 @@ script:
             if (minutes < 0) { snprintf(b, sizeof(b), "reset --"); return b; }
             int m = minutes;
             snprintf(b, sizeof(b), "reset %dh%02dm", m/60, m%60);
+            return b;
+      # Combined tile: countdown only, no "reset " prefix.
+      - lvgl.label.update:
+          id: lbl_cmb_codex_reset
+          text: !lambda |-
+            static char b[16];
+            if (minutes < 0) { snprintf(b, sizeof(b), "--"); return b; }
+            int m = minutes;
+            snprintf(b, sizeof(b), "%dh%02dm", m/60, m%60);
             return b;
 
   # Touch handler, called by the board's touchscreen on_touch.
@@ -213,7 +266,7 @@ script:
           if (dir != 0) {
             int t = id(cur_tile) + dir;
             if (t < 0) t = 0;
-            if (t > 3) t = 3;            // tiles: 0=Claude 1=Codex 2=Clock 3=Settings
+            if (t > 4) t = 4;            // tiles: 0=Combined 1=Claude 2=Codex 3=Clock 4=Settings
             id(switch_target) = t;
           } else {
             id(switch_target) = -1;
@@ -244,10 +297,12 @@ interval:
           id: clk_second
           angle: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return t.second * 60.0f;'                         # 3600/60
 
-  # Auto-switch tiles: clock when idle (both 5h sessions = 0%, including "daemon
-  # offline" — HA pushes unavailable -> NAN -> the sensor handlers zero the
-  # globals), to the active provider when usage starts or crosses a 70%/90%
-  # threshold. Paused for 2 min after any manual touch so it never fights a swipe.
+  # Auto-switch tiles: Combined is home. When either 5h session goes active
+  # (0 -> >0), rest on the Combined tile (col 0) which shows both providers at
+  # once. When BOTH sessions become idle (including "daemon offline" — HA pushes
+  # unavailable -> NAN -> the sensor handlers zero the globals), drop to the
+  # Clock (col 3). Edge-triggered on the idle<->active transition so it never
+  # fights a manual swipe mid-session. Paused 2 min after any manual touch.
   - interval: 2s
     then:
       # If HA itself is unreachable there is no live data — treat as idle.
@@ -259,28 +314,22 @@ interval:
             - lambda: 'id(claude_session_pct) = 0; id(codex_session_pct) = 0;'
       # Decide the target tile (writes id(switch_target): -1 = no change, else column)
       - lambda: |-
-          static int prev_c = 0, prev_x = 0;   // previous Claude / Codex session %
+          static bool prev_active = false;   // was either session active last tick?
           int c = id(claude_session_pct);
           int x = id(codex_session_pct);
+          bool active = (c > 0 || x > 0);
           // last_touch_ms == 0 means "never touched" — without that check the
-          // device boots paused and eats the first 0->N crossing.
+          // device boots paused and eats the first idle->active transition.
           bool paused = id(last_touch_ms) != 0 &&
                         (millis() - id(last_touch_ms)) < 120000;  // 2 min after touch
 
-          auto crossed = [](int prev, int now) {
-            return (prev == 0 && now > 0) ||
-                   (prev < 70 && now >= 70) ||
-                   (prev < 90 && now >= 90);
-          };
-
           int target = -1;  // -1 = leave as-is
           if (!paused) {
-            if (crossed(prev_c, c))      target = 0;  // Claude tile (wins if both)
-            else if (crossed(prev_x, x)) target = 1;  // Codex tile
-            else if (c == 0 && x == 0)   target = 2;  // idle -> clock
+            if (active && !prev_active)       target = 0;  // became active -> Combined home
+            else if (!active && prev_active)  target = 3;  // both idle -> Clock
             // Consume prev only when we actually evaluated it; updating it while
-            // paused silently discards crossings that happen during the pause.
-            prev_c = c; prev_x = x;
+            // paused silently discards transitions that happen during the pause.
+            prev_active = active;
           }
 
           if (target >= 0 && target == id(cur_tile)) target = -1;  // already there
@@ -300,6 +349,12 @@ font:
   - file: "gfonts://Roboto@700"
     id: font_pct          # big center percentage
     size: 88
+  - file: "gfonts://Roboto@700"
+    id: font_pct_sm       # combined-tile session % (two per screen, must fit a half)
+    size: 50
+  - file: "gfonts://Roboto"
+    id: font_tiny         # combined-tile reset line (least-glanced, smallest slot)
+    size: 18
   - file: "gfonts://Roboto@500"
     id: font_med          # labels
     size: 30
@@ -355,16 +410,184 @@ lvgl:
         on_value:
           then:
             - lambda: |-
-                if      (tile == id(tile_claude))   id(cur_tile) = 0;
-                else if (tile == id(tile_codex))    id(cur_tile) = 1;
-                else if (tile == id(tile_clock))    id(cur_tile) = 2;
-                else if (tile == id(tile_settings)) id(cur_tile) = 3;
+                if      (tile == id(tile_combined)) id(cur_tile) = 0;
+                else if (tile == id(tile_claude))   id(cur_tile) = 1;
+                else if (tile == id(tile_codex))    id(cur_tile) = 2;
+                else if (tile == id(tile_clock))    id(cur_tile) = 3;
+                else if (tile == id(tile_settings)) id(cur_tile) = 4;
         tiles:
-          # ---------- Tile 0: Claude ----------
+          # ---------- Tile 0: Combined (Claude + Codex, split rings) ----------
+          # Left half = Claude, right half = Codex. No divider — the color
+          # families (green/blue vs teal/gold) separate the halves. Six data
+          # points: each side shows session %, week %, and reset.
+          #   Left semicircle:  start 90 -> end 270 (clockwise through 180/left)
+          #   Right semicircle: start 270 -> end 90  (clockwise through 0/right)
+          # Arcs are full-diameter but only paint their half via the angle range;
+          # week = outer, session = inner (mirrors the single-service tiles).
+          - id: tile_combined
+            row: 0
+            column: 0
+            dir: HOR
+            bg_color: 0x000000
+            bg_opa: COVER
+            widgets:
+              # ---- Claude (left) ----
+              - arc:
+                  id: arc_cmb_claude_week
+                  align: CENTER
+                  width: 472
+                  height: 472
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  start_angle: 90
+                  end_angle: 270
+                  adjustable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  arc_rounded: false
+                  arc_width: 16
+                  arc_color: 0x203A5C
+                  arc_opa: COVER
+                  indicator:
+                    arc_rounded: false
+                    arc_width: 16
+                    arc_color: 0x18B4FF
+              - arc:
+                  id: arc_cmb_claude_session
+                  align: CENTER
+                  width: 400
+                  height: 400
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  start_angle: 90
+                  end_angle: 270
+                  adjustable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  arc_rounded: false
+                  arc_width: 16
+                  arc_color: 0x1E5235
+                  arc_opa: COVER
+                  indicator:
+                    arc_rounded: false
+                    arc_width: 16
+                    arc_color: 0x2BE06A
+              - label:
+                  id: lbl_cmb_claude_pct
+                  align: CENTER
+                  x: -118
+                  y: -26
+                  text: "--%"
+                  text_color: 0xFFFFFF
+                  text_font: font_pct_sm
+              - label:
+                  align: CENTER
+                  x: -118
+                  y: 18
+                  text: "Claude"
+                  text_color: 0xBBBBBB
+                  text_font: font_small
+              - label:
+                  id: lbl_cmb_claude_week
+                  align: CENTER
+                  x: -118
+                  y: 46
+                  text: "wk --%"
+                  text_color: 0x00B0FF
+                  text_font: font_small
+              - label:
+                  id: lbl_cmb_claude_reset
+                  align: CENTER
+                  x: -118
+                  y: 74
+                  text: "--"
+                  text_color: 0x999999
+                  text_font: font_tiny
+              # ---- Codex (right) ----
+              - arc:
+                  id: arc_cmb_codex_week
+                  align: CENTER
+                  width: 472
+                  height: 472
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  start_angle: 270
+                  end_angle: 90
+                  adjustable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  arc_rounded: false
+                  arc_width: 16
+                  arc_color: 0x3A2A14
+                  arc_opa: COVER
+                  indicator:
+                    arc_rounded: false
+                    arc_width: 16
+                    arc_color: 0xFFB020
+              - arc:
+                  id: arc_cmb_codex_session
+                  align: CENTER
+                  width: 400
+                  height: 400
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  start_angle: 270
+                  end_angle: 90
+                  adjustable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  arc_rounded: false
+                  arc_width: 16
+                  arc_color: 0x14323A
+                  arc_opa: COVER
+                  indicator:
+                    arc_rounded: false
+                    arc_width: 16
+                    arc_color: 0x20D0D0
+              - label:
+                  id: lbl_cmb_codex_pct
+                  align: CENTER
+                  x: 118
+                  y: -26
+                  text: "--%"
+                  text_color: 0xFFFFFF
+                  text_font: font_pct_sm
+              - label:
+                  align: CENTER
+                  x: 118
+                  y: 18
+                  text: "Codex"
+                  text_color: 0xBBBBBB
+                  text_font: font_small
+              - label:
+                  id: lbl_cmb_codex_week
+                  align: CENTER
+                  x: 118
+                  y: 46
+                  text: "wk --%"
+                  text_color: 0x20D0D0
+                  text_font: font_small
+              - label:
+                  id: lbl_cmb_codex_reset
+                  align: CENTER
+                  x: 118
+                  y: 74
+                  text: "--"
+                  text_color: 0x999999
+                  text_font: font_tiny
+          # ---------- Tile 1: Claude ----------
           # Two rings (outer→inner): weekly (blue), session (green)
           - id: tile_claude
             row: 0
-            column: 0
+            column: 1
             dir: HOR
             bg_color: 0x000000
             bg_opa: COVER
@@ -445,7 +668,7 @@ lvgl:
           # ---------- Tile 1: Codex (placeholder until daemon data lands) ----------
           - id: tile_codex
             row: 0
-            column: 1
+            column: 2
             dir: HOR
             bg_color: 0x000000
             bg_opa: COVER
@@ -524,7 +747,7 @@ lvgl:
           # ---------- Tile 2: Clock (Rolex Explorer I homage) ----------
           - id: tile_clock
             row: 0
-            column: 2
+            column: 3
             dir: HOR
             bg_color: 0x000000
             bg_opa: COVER
@@ -641,7 +864,7 @@ lvgl:
           # ---------- Tile 3: Settings ----------
           - id: tile_settings
             row: 0
-            column: 3
+            column: 4
             dir: HOR
             bg_color: 0x000000
             bg_opa: COVER
