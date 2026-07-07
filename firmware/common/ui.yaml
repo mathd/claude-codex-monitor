@@ -448,12 +448,12 @@ lvgl:
                   bg_opa: TRANSP
                   border_width: 0
                   pad_all: 0
-                  arc_rounded: false
+                  arc_rounded: true
                   arc_width: 16
                   arc_color: 0x203A5C
                   arc_opa: COVER
                   indicator:
-                    arc_rounded: false
+                    arc_rounded: true
                     arc_width: 16
                     arc_color: 0x18B4FF
               - arc:
@@ -470,25 +470,25 @@ lvgl:
                   bg_opa: TRANSP
                   border_width: 0
                   pad_all: 0
-                  arc_rounded: false
+                  arc_rounded: true
                   arc_width: 16
                   arc_color: 0x1E5235
                   arc_opa: COVER
                   indicator:
-                    arc_rounded: false
+                    arc_rounded: true
                     arc_width: 16
                     arc_color: 0x2BE06A
               - label:
                   id: lbl_cmb_claude_pct
                   align: CENTER
-                  x: -118
+                  x: -90
                   y: -26
                   text: "--%"
                   text_color: 0xFFFFFF
                   text_font: font_pct_sm
               - label:
                   align: CENTER
-                  x: -118
+                  x: -90
                   y: 18
                   text: "Claude"
                   text_color: 0xBBBBBB
@@ -496,7 +496,7 @@ lvgl:
               - label:
                   id: lbl_cmb_claude_week
                   align: CENTER
-                  x: -118
+                  x: -90
                   y: 46
                   text: "wk --%"
                   text_color: 0x00B0FF
@@ -504,7 +504,7 @@ lvgl:
               - label:
                   id: lbl_cmb_claude_reset
                   align: CENTER
-                  x: -118
+                  x: -90
                   y: 74
                   text: "--"
                   text_color: 0x999999
@@ -525,12 +525,12 @@ lvgl:
                   bg_opa: TRANSP
                   border_width: 0
                   pad_all: 0
-                  arc_rounded: false
+                  arc_rounded: true
                   arc_width: 16
                   arc_color: 0x3A2A14
                   arc_opa: COVER
                   indicator:
-                    arc_rounded: false
+                    arc_rounded: true
                     arc_width: 16
                     arc_color: 0xFFB020
               - arc:
@@ -547,25 +547,25 @@ lvgl:
                   bg_opa: TRANSP
                   border_width: 0
                   pad_all: 0
-                  arc_rounded: false
+                  arc_rounded: true
                   arc_width: 16
                   arc_color: 0x14323A
                   arc_opa: COVER
                   indicator:
-                    arc_rounded: false
+                    arc_rounded: true
                     arc_width: 16
                     arc_color: 0x20D0D0
               - label:
                   id: lbl_cmb_codex_pct
                   align: CENTER
-                  x: 118
+                  x: 90
                   y: -26
                   text: "--%"
                   text_color: 0xFFFFFF
                   text_font: font_pct_sm
               - label:
                   align: CENTER
-                  x: 118
+                  x: 90
                   y: 18
                   text: "Codex"
                   text_color: 0xBBBBBB
@@ -573,7 +573,7 @@ lvgl:
               - label:
                   id: lbl_cmb_codex_week
                   align: CENTER
-                  x: 118
+                  x: 90
                   y: 46
                   text: "wk --%"
                   text_color: 0x20D0D0
@@ -581,7 +581,7 @@ lvgl:
               - label:
                   id: lbl_cmb_codex_reset
                   align: CENTER
-                  x: 118
+                  x: 90
                   y: 74
                   text: "--"
                   text_color: 0x999999
