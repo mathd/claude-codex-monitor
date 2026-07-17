@@ -406,13 +406,13 @@ interval:
       # NOTE: runtime angle lambdas return 0.1-degree units (degrees * 10).
       - lvgl.image.update:
           id: clk_hour
-          angle: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return ((t.hour % 12) * 60 + t.minute) * 5.0f;'   # 3600/720
+          rotation: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return ((t.hour % 12) * 60 + t.minute) * 5.0f;'   # 3600/720
       - lvgl.image.update:
           id: clk_minute
-          angle: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return (t.minute * 60 + t.second) * 1.0f;'        # 3600/3600
+          rotation: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return (t.minute * 60 + t.second) * 1.0f;'        # 3600/3600
       - lvgl.image.update:
           id: clk_second
-          angle: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return t.second * 60.0f;'                         # 3600/60
+          rotation: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return t.second * 60.0f;'                         # 3600/60
 
   # Auto-switch tiles: Combined is home. When the Claude 5h session goes active
   # (0 -> >0), rest on the Combined tile (col 0) which shows both providers at
@@ -485,24 +485,31 @@ font:
     size: 16
 
 # === Clock hand images (Explorer-style), rotated by the clock interval ===
+# Images are platforms of the `image` component as of ESPHome 2026.x; the bare
+# `- file:` form is removed in 2027.1.0.
 image:
-  - file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/hand_hour.png"
+  - platform: file
+    file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/hand_hour.png"
     id: img_hour
     type: RGB
     transparency: alpha_channel
-  - file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/hand_minute.png"
+  - platform: file
+    file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/hand_minute.png"
     id: img_minute
     type: RGB
     transparency: alpha_channel
-  - file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/hand_second.png"
+  - platform: file
+    file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/hand_second.png"
     id: img_second
     type: RGB
     transparency: alpha_channel
-  - file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/marker_triangle.png"
+  - platform: file
+    file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/marker_triangle.png"
     id: img_triangle
     type: RGB
     transparency: alpha_channel
-  - file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/baton.png"
+  - platform: file
+    file: "https://raw.githubusercontent.com/mathd/claude-codex-monitor/main/firmware/images/baton.png"
     id: img_baton
     type: RGB
     transparency: alpha_channel
@@ -975,14 +982,14 @@ lvgl:
                   y: -198
               # Baton hour markers at 1,2,4,5,7,8,10,11 (skip 3/6/9 numerals + 12 triangle).
               # baton.png 24x210, pivot (12,210); y:-105 puts pivot at dial center; rotate by hour angle.
-              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 30 }
-              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 60 }
-              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 120 }
-              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 150 }
-              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 210 }
-              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 240 }
-              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 300 }
-              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, angle: 330 }
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, rotation: 30 }
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, rotation: 60 }
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, rotation: 120 }
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, rotation: 150 }
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, rotation: 210 }
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, rotation: 240 }
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, rotation: 300 }
+              - image: { src: img_baton, align: CENTER, y: -105, pivot_x: 12, pivot_y: 210, rotation: 330 }
               # 3 / 6 / 9 Arabic numerals
               - label:
                   align: CENTER
