@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -93,14 +94,35 @@ func loadConfig() config {
 // FablePct is a pointer so "no scoped window in the response" serializes to
 // null, which HA renders unavailable -> NAN -> the firmware's -1 "--" path.
 // A plain int would publish a healthy-looking 0% instead.
+// *ElapsedPct is the pace marker: how far THROUGH the window we are, 0-100,
+// independent of how much has been used. Marker ahead of the fill = burning
+// slower than linear; fill ahead of the marker = on pace to run out early.
+// Nullable for the same reason as FablePct — absent must not render as 0.
 type usage struct {
-	SessionPct      int  `json:"session_pct"`
-	SessionResetMin int  `json:"session_reset_min"`
-	WeekPct         int  `json:"week_pct"`
-	WeekResetMin    int  `json:"week_reset_min"`
-	FablePct        *int `json:"fable_pct"`
-	Ok              bool `json:"ok"`
-	Stale           bool `json:"stale"`
+	SessionPct        int  `json:"session_pct"`
+	SessionResetMin   int  `json:"session_reset_min"`
+	SessionElapsedPct *int `json:"session_elapsed_pct"`
+	WeekPct           int  `json:"week_pct"`
+	WeekResetMin      int  `json:"week_reset_min"`
+	WeekElapsedPct    *int `json:"week_elapsed_pct"`
+	FablePct          *int `json:"fable_pct"`
+	Ok                bool `json:"ok"`
+	Stale             bool `json:"stale"`
+}
+
+// elapsedPct converts "minutes until reset" into "percent of the window elapsed",
+// given the window's total length. Returns nil when resetMin is 0 — the daemon
+// uses 0 as its "no data" value for reset minutes, and a real 0 would mean the
+// window is resetting this instant, so a marker at 100% would be noise either way.
+func elapsedPct(resetMin, windowMin int) *int {
+	if resetMin <= 0 || windowMin <= 0 {
+		return nil
+	}
+	if resetMin > windowMin {
+		resetMin = windowMin // clock skew guard
+	}
+	v := int(math.Round(float64(windowMin-resetMin) / float64(windowMin) * 100))
+	return &v
 }
 
 // Claude usage fetching lives in claude.go; Codex in codex.go.
@@ -137,9 +159,13 @@ func discoverySensors() []discoverySensor {
 		{"week_pct", "Claude Weekly Usage", "{{ value_json.week_pct }}", "%", "mdi:calendar-week", "claude"},
 		{"week_reset_min", "Claude Weekly Reset", "{{ value_json.week_reset_min }}", "min", "mdi:timer-sand", "claude"},
 		{"fable_pct", "Claude Fable Weekly Usage", "{{ value_json.fable_pct }}", "%", "mdi:calendar-star", "claude"},
+		// Pace markers: percent of the window elapsed (not used).
+		{"session_elapsed_pct", "Claude Session Elapsed", "{{ value_json.session_elapsed_pct }}", "%", "mdi:speedometer", "claude"},
+		{"week_elapsed_pct", "Claude Weekly Elapsed", "{{ value_json.week_elapsed_pct }}", "%", "mdi:speedometer", "claude"},
 		// No Codex session sensors: OpenAI retired the 5h window.
 		{"codex_week_pct", "Codex Weekly Usage", "{{ value_json.week_pct }}", "%", "mdi:calendar-week", "codex"},
 		{"codex_week_reset_min", "Codex Weekly Reset", "{{ value_json.week_reset_min }}", "min", "mdi:timer-sand", "codex"},
+		{"codex_week_elapsed_pct", "Codex Weekly Elapsed", "{{ value_json.week_elapsed_pct }}", "%", "mdi:speedometer", "codex"},
 	}
 }
 

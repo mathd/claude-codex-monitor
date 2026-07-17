@@ -219,9 +219,12 @@ func fetchCodexUsage(ctx context.Context) *usage {
 		return nil // no usable window — caller treats as unavailable
 	}
 	// Session stays 0: OpenAI no longer publishes a 5h window.
+	// Unlike Claude, the window length is in the response — no constant needed.
+	weekReset := mins(w.ResetAfterSeconds)
 	return &usage{
-		WeekPct:      pct(w.UsedPercent),
-		WeekResetMin: mins(w.ResetAfterSeconds),
-		Ok:           true,
+		WeekPct:        pct(w.UsedPercent),
+		WeekResetMin:   weekReset,
+		WeekElapsedPct: elapsedPct(weekReset, mins(w.LimitWindowSeconds)),
+		Ok:             true,
 	}
 }

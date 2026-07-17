@@ -32,6 +32,14 @@ const (
 	claudeScopes     = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
 	claudeBetaHdr    = "oauth-2025-04-20"
 	claudeUA         = "claude-code/2.1.69"
+
+	// Window lengths for the pace marker. The API publishes resets_at but never
+	// the window's length, so these are constants. Verified against live data:
+	// the windows are a FIXED GRID, not rolling — five_hour lands on a clean
+	// :30:00 boundary and seven_day on Saturday 11:00 UTC exactly. If a reset
+	// ever stops landing on a round boundary, revisit these.
+	claudeSessionWindowMin = 5 * 60      // five_hour
+	claudeWeekWindowMin    = 7 * 24 * 60 // seven_day
 )
 
 func claudeCredPath() (string, error) {
@@ -255,13 +263,18 @@ func fetchUsage(ctx context.Context) *usage {
 		log.Printf("Claude: no usable weekly_scoped limit in response — Fable will show unavailable")
 	}
 
+	sessionReset := resetMinFromRFC3339(u.FiveHour.ResetsAt)
+	weekReset := resetMinFromRFC3339(u.SevenDay.ResetsAt)
+
 	return &usage{
-		SessionPct:      pct(u.FiveHour.Utilization),
-		SessionResetMin: resetMinFromRFC3339(u.FiveHour.ResetsAt),
-		WeekPct:         pct(u.SevenDay.Utilization),
-		WeekResetMin:    resetMinFromRFC3339(u.SevenDay.ResetsAt),
-		FablePct:        fable,
-		Ok:              true,
+		SessionPct:        pct(u.FiveHour.Utilization),
+		SessionResetMin:   sessionReset,
+		SessionElapsedPct: elapsedPct(sessionReset, claudeSessionWindowMin),
+		WeekPct:           pct(u.SevenDay.Utilization),
+		WeekResetMin:      weekReset,
+		WeekElapsedPct:    elapsedPct(weekReset, claudeWeekWindowMin),
+		FablePct:          fable,
+		Ok:                true,
 	}
 }
 

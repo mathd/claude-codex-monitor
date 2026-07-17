@@ -256,6 +256,24 @@ script:
               snprintf(b, sizeof(b), "wk reset %dh%02dm", m/60, m%60);
             }
             return b;
+      # Combined tile: same value, terser (no "reset" word — space is tight).
+      - lvgl.label.update:
+          id: lbl_cmb_week_reset
+          text: !lambda |-
+            static char b[16];
+            if (minutes < 0) { snprintf(b, sizeof(b), "wk --"); return b; }
+            int m = minutes;
+            if (id(reset_show_clock)) {
+              time_t t = ::time(nullptr) + (time_t)m * 60;
+              struct tm *lt = localtime(&t);
+              if (lt) { strftime(b, sizeof(b), "wk %a %H:%M", lt); }
+              else    { snprintf(b, sizeof(b), "wk %dd%02dh", m/1440, (m%1440)/60); }
+            } else if (m >= 1440) {
+              snprintf(b, sizeof(b), "wk %dd%02dh", m/1440, (m%1440)/60);
+            } else {
+              snprintf(b, sizeof(b), "wk %dh%02dm", m/60, m%60);
+            }
+            return b;
 
   - id: set_codex_reset
     parameters:
@@ -281,6 +299,70 @@ script:
             if (m >= 1440) { snprintf(b, sizeof(b), "%dd%02dh", m/1440, (m%1440)/60); }
             else           { snprintf(b, sizeof(b), "%dh%02dm", m/60, m%60); }
             return b;
+
+  # Transport-facing pace-marker entry points (same int/-1 convention).
+  - id: set_claude_session_elapsed
+    parameters:
+      pct: int
+    then:
+      - script.execute: { id: place_marker, marker_id: 0, pct: !lambda 'return pct;' }
+      - script.execute: { id: place_marker, marker_id: 2, pct: !lambda 'return pct;' }
+
+  - id: set_claude_week_elapsed
+    parameters:
+      pct: int
+    then:
+      - script.execute: { id: place_marker, marker_id: 1, pct: !lambda 'return pct;' }
+      - script.execute: { id: place_marker, marker_id: 3, pct: !lambda 'return pct;' }
+
+  - id: set_codex_week_elapsed
+    parameters:
+      pct: int
+    then:
+      - script.execute: { id: place_marker, marker_id: 4, pct: !lambda 'return pct;' }
+
+  # === Pace markers ===
+  # A small dot on the ring showing how far THROUGH the window we are, so the
+  # gap between it and the fill reads as ahead/behind pace at a glance.
+  # LVGL has no native arc marker, so it's an obj positioned by trigonometry.
+  #
+  # Angles here must match each arc's span (see the tile comments):
+  #   Claude tiles: full circle, 0..360 starting at 12 o'clock  -> -90 + p*3.6
+  #   Combined top: 184..356                                    -> 184 + p*1.72
+  #   Combined bot: 4..176 REVERSE, fills from 176 backwards    -> 176 - p*1.72
+  # Radius = (arc diameter - arc_width) / 2, so the dot rides the ring's centre.
+  - id: place_marker
+    parameters:
+      marker_id: int      # 0=claude session(tile1) 1=claude week(tile1) 2=cmb session 3=cmb week 4=cmb codex
+      pct: int
+    then:
+      - lambda: |-
+          // Hide the marker when there is no pace data (pct < 0).
+          auto hide = [](lv_obj_t *o) { lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
+          auto show = [](lv_obj_t *o) { lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
+          // A plain `obj:` widget's id IS an lv_obj_t* (ObjType registers
+          // lv_obj_t); only compound widgets like meter/dropdown need ->obj.
+          lv_obj_t *obj = nullptr;
+          float deg = 0, radius = 0;
+          switch (marker_id) {
+            case 0: obj = id(mk_session);     radius = (376-20)/2.0f; deg = -90 + pct*3.6f;  break;
+            case 1: obj = id(mk_week);        radius = (472-20)/2.0f; deg = -90 + pct*3.6f;  break;
+            case 2: obj = id(mk_cmb_session); radius = (384-14)/2.0f; deg = 184 + pct*1.72f; break;
+            case 3: obj = id(mk_cmb_week);    radius = (472-14)/2.0f; deg = 184 + pct*1.72f; break;
+            case 4: obj = id(mk_cmb_codex);   radius = (472-14)/2.0f; deg = 176 - pct*1.72f; break;
+            default: return;
+          }
+          if (pct < 0) { hide(obj); return; }
+          show(obj);
+          float rad = deg * 3.14159265f / 180.0f;
+          // lv_obj_align() offsets from the PARENT's centre, so this stays
+          // correct regardless of where the tile sits inside the tileview.
+          // (lv_obj_set_pos would be parent-relative from the top-left, which
+          // works on tile 0 but is fragile to relayout.) The dot's own size is
+          // handled by ALIGN_CENTER, so no -4 half-width fudge is needed.
+          lv_obj_align(obj, LV_ALIGN_CENTER,
+                       (lv_coord_t)lroundf(radius * cosf(rad)),
+                       (lv_coord_t)lroundf(radius * sinf(rad)));
 
   # Touch handler, called by the board's touchscreen on_touch.
   # Tap navigation: tap the left third = previous tile, right third = next.
@@ -547,20 +629,20 @@ lvgl:
               - label:
                   id: lbl_cmb_claude_pct
                   align: CENTER
-                  y: -152
+                  y: -134
                   text: "--%"
                   text_color: 0xFFFFFF
                   text_font: font_pct_sm
               - label:
                   id: lbl_cmb_claude_reset
                   align: CENTER
-                  y: -114
+                  y: -96
                   text: "--"
                   text_color: 0x999999
                   text_font: font_tiny
               - label:
                   align: CENTER
-                  y: -90
+                  y: -72
                   text: "Claude"
                   text_color: 0xBBBBBB
                   text_font: font_small
@@ -568,7 +650,7 @@ lvgl:
                   id: lbl_cmb_claude_week
                   align: CENTER
                   x: -46
-                  y: -62
+                  y: -44
                   text: "wk --%"
                   text_color: 0x00B0FF
                   text_font: font_small
@@ -576,10 +658,18 @@ lvgl:
                   id: lbl_cmb_claude_fable
                   align: CENTER
                   x: 46
-                  y: -62
+                  y: -44
                   text: "fbl --%"
                   text_color: 0xB06AFF
                   text_font: font_small
+              # Weekly countdown — covers BOTH weekly rings (shared resets_at).
+              - label:
+                  id: lbl_cmb_week_reset
+                  align: CENTER
+                  y: -20
+                  text: "wk --"
+                  text_color: 0x777777
+                  text_font: font_tiny
               # ---- Codex (bottom): one ring, same 9 o'clock anchor ----
               # Angles are LVGL's: 0 = 3 o'clock, increasing CLOCKWISE (hence
               # 90 = 6 o'clock, 270 = 12). So the lower half is 4 -> 176, which
@@ -630,6 +720,36 @@ lvgl:
                   text: "--"
                   text_color: 0x999999
                   text_font: font_tiny
+              # Pace markers, LAST so they paint over the arcs. Positioned at
+              # runtime by place_marker; hidden until data arrives. align is
+              # omitted deliberately — lv_obj_set_pos() sets absolute x/y.
+              - obj:
+                  id: mk_cmb_week
+                  width: 8
+                  height: 8
+                  radius: 4
+                  bg_color: 0xFFFFFF
+                  bg_opa: COVER
+                  border_width: 0
+                  hidden: true
+              - obj:
+                  id: mk_cmb_session
+                  width: 8
+                  height: 8
+                  radius: 4
+                  bg_color: 0xFFFFFF
+                  bg_opa: COVER
+                  border_width: 0
+                  hidden: true
+              - obj:
+                  id: mk_cmb_codex
+                  width: 8
+                  height: 8
+                  radius: 4
+                  bg_color: 0xFFFFFF
+                  bg_opa: COVER
+                  border_width: 0
+                  hidden: true
           # ---------- Tile 1: Claude ----------
           # Three rings (outer→inner): weekly (blue), fable (violet), session (green)
           - id: tile_claude
@@ -749,6 +869,25 @@ lvgl:
                   text: "wk reset --"
                   text_color: 0x777777
                   text_font: font_tiny
+              # Pace markers, last so they paint over the arcs.
+              - obj:
+                  id: mk_week
+                  width: 8
+                  height: 8
+                  radius: 4
+                  bg_color: 0xFFFFFF
+                  bg_opa: COVER
+                  border_width: 0
+                  hidden: true
+              - obj:
+                  id: mk_session
+                  width: 8
+                  height: 8
+                  radius: 4
+                  bg_color: 0xFFFFFF
+                  bg_opa: COVER
+                  border_width: 0
+                  hidden: true
           # ---------- Tile 2: Codex ----------
           # One ring: weekly (gold). OpenAI retired the 5h window, so the weekly
           # number is the headline rather than a subtitle under a session %.

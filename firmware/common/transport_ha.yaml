@@ -51,6 +51,23 @@ sensor:
           id: set_claude_week_reset
           minutes: !lambda 'return std::isnan(x) ? -1 : (int) x;'
 
+  # --- Pace markers: % of the window elapsed (not used) ---
+  - platform: homeassistant
+    id: ha_session_elapsed
+    entity_id: sensor.claude_monitor_claude_session_elapsed
+    on_value:
+      - script.execute:
+          id: set_claude_session_elapsed
+          pct: !lambda 'return std::isnan(x) ? -1 : (int) x;'
+
+  - platform: homeassistant
+    id: ha_week_elapsed
+    entity_id: sensor.claude_monitor_claude_weekly_elapsed
+    on_value:
+      - script.execute:
+          id: set_claude_week_elapsed
+          pct: !lambda 'return std::isnan(x) ? -1 : (int) x;'
+
   # --- Codex sensors (published by the daemon: codex_state topic) ---
   # No session sensor: OpenAI retired the 5h window.
   - platform: homeassistant
@@ -69,3 +86,11 @@ sensor:
       - script.execute:
           id: set_codex_reset
           minutes: !lambda 'return std::isnan(x) ? -1 : (int) x;'
+
+  - platform: homeassistant
+    id: ha_codex_week_elapsed
+    entity_id: sensor.claude_monitor_codex_weekly_elapsed
+    on_value:
+      - script.execute:
+          id: set_codex_week_elapsed
+          pct: !lambda 'return std::isnan(x) ? -1 : (int) x;'
