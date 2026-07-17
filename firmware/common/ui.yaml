@@ -23,6 +23,26 @@ globals:
   - id: claude_session_pct   # latest Claude 5h %
     type: int
     initial_value: '0'
+  # --- pace-marker state ---
+  # The marker is white on the dark unfilled track, black once the fill has
+  # passed under it (white-on-bright-green/blue was unreadable). That needs BOTH
+  # the usage % and the elapsed %, which arrive as separate HA sensors in either
+  # order — so each side stores its value and re-runs the marker. -1 = unknown.
+  - id: claude_week_pct
+    type: int
+    initial_value: '0'
+  - id: codex_week_pct
+    type: int
+    initial_value: '0'
+  - id: session_elapsed
+    type: int
+    initial_value: '-1'
+  - id: week_elapsed
+    type: int
+    initial_value: '-1'
+  - id: codex_elapsed
+    type: int
+    initial_value: '-1'
   - id: last_touch_ms        # millis() of last manual touch (pauses auto-switch)
     type: uint32_t
     initial_value: '0'
@@ -77,11 +97,14 @@ script:
                     if (pct >= 90) return Color(0xFF, 0x3B, 0x30);
                     if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
                     return Color(0x2B, 0xE0, 0x6A);
+      # Usage moved under the dot — recolor it.
+      - script.execute: { id: refresh_markers }
 
   - id: set_claude_week
     parameters:
       pct: int
     then:
+      - lambda: 'id(claude_week_pct) = (pct < 0) ? 0 : pct;'
       - if:
           condition:
             lambda: 'return pct < 0;'
@@ -113,6 +136,7 @@ script:
                     if (pct >= 90) return Color(0xFF, 0x3B, 0x30);
                     if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
                     return Color(0x00, 0xB0, 0xFF);
+      - script.execute: { id: refresh_markers }
 
   # Fable = the model-scoped weekly window. Shares set_claude_week's reset
   # countdown (the API returns an identical resets_at for both weeklies), so
@@ -196,6 +220,7 @@ script:
     parameters:
       pct: int
     then:
+      - lambda: 'id(codex_week_pct) = (pct < 0) ? 0 : pct;'
       - if:
           condition:
             lambda: 'return pct < 0;'
@@ -227,6 +252,7 @@ script:
                     if (pct >= 90) return Color(0xFF, 0x3B, 0x30);
                     if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
                     return Color(0xFF, 0xB0, 0x20);
+      - script.execute: { id: refresh_markers }
 
   # NOTE: unlike Claude's, the Codex reset label intentionally ignores the
   # reset_show_clock toggle — countdown only (matches pre-refactor behavior).
@@ -301,25 +327,63 @@ script:
             return b;
 
   # Transport-facing pace-marker entry points (same int/-1 convention).
+  # Each stores its elapsed % and redraws; refresh_markers() below re-runs them
+  # when the USAGE side changes, since the dot's color depends on both.
   - id: set_claude_session_elapsed
     parameters:
       pct: int
     then:
-      - script.execute: { id: place_marker, marker_id: 0, pct: !lambda 'return pct;' }
-      - script.execute: { id: place_marker, marker_id: 2, pct: !lambda 'return pct;' }
+      - lambda: 'id(session_elapsed) = pct;'
+      - script.execute: { id: refresh_markers }
 
   - id: set_claude_week_elapsed
     parameters:
       pct: int
     then:
-      - script.execute: { id: place_marker, marker_id: 1, pct: !lambda 'return pct;' }
-      - script.execute: { id: place_marker, marker_id: 3, pct: !lambda 'return pct;' }
+      - lambda: 'id(week_elapsed) = pct;'
+      - script.execute: { id: refresh_markers }
 
   - id: set_codex_week_elapsed
     parameters:
       pct: int
     then:
-      - script.execute: { id: place_marker, marker_id: 4, pct: !lambda 'return pct;' }
+      - lambda: 'id(codex_elapsed) = pct;'
+      - script.execute: { id: refresh_markers }
+
+  # Redraw every marker from the stored globals. Cheap (5 obj repositions) and
+  # called whenever EITHER input changes, so order of arrival doesn't matter.
+  # mode: parallel — refresh_markers fires place_marker 5x back-to-back, and
+  # both can be re-entered as sensors land. The default (single) would silently
+  # DROP those calls, leaving markers stale. Safe here: both scripts are pure
+  # synchronous lambdas with no delays, so there is nothing to interleave.
+  - id: refresh_markers
+    mode: parallel
+    then:
+      - script.execute:
+          id: place_marker
+          marker_id: 0
+          pct: !lambda 'return id(session_elapsed);'
+          used: !lambda 'return id(claude_session_pct);'
+      - script.execute:
+          id: place_marker
+          marker_id: 2
+          pct: !lambda 'return id(session_elapsed);'
+          used: !lambda 'return id(claude_session_pct);'
+      - script.execute:
+          id: place_marker
+          marker_id: 1
+          pct: !lambda 'return id(week_elapsed);'
+          used: !lambda 'return id(claude_week_pct);'
+      - script.execute:
+          id: place_marker
+          marker_id: 3
+          pct: !lambda 'return id(week_elapsed);'
+          used: !lambda 'return id(claude_week_pct);'
+      - script.execute:
+          id: place_marker
+          marker_id: 4
+          pct: !lambda 'return id(codex_elapsed);'
+          used: !lambda 'return id(codex_week_pct);'
 
   # === Pace markers ===
   # A small dot on the ring showing how far THROUGH the window we are, so the
@@ -332,9 +396,11 @@ script:
   #   Combined bot: 4..176 REVERSE, fills from 176 backwards    -> 176 - p*1.72
   # Radius = (arc diameter - arc_width) / 2, so the dot rides the ring's centre.
   - id: place_marker
+    mode: parallel        # see refresh_markers — called 5x in a row
     parameters:
       marker_id: int      # 0=claude session(tile1) 1=claude week(tile1) 2=cmb session 3=cmb week 4=cmb codex
-      pct: int
+      pct: int            # elapsed % — where the dot goes
+      used: int           # usage % — what's under the dot (decides its color)
     then:
       - lambda: |-
           // Hide the marker when there is no pace data (pct < 0).
@@ -354,6 +420,15 @@ script:
           }
           if (pct < 0) { hide(obj); return; }
           show(obj);
+
+          // Contrast: the dot sits ON the ring, so its background is the fill
+          // when used >= pct (behind pace) and the dark track otherwise.
+          // White on bright green/blue is unreadable — go black there.
+          bool on_fill = (used >= 0 && used >= pct);
+          lv_obj_set_style_bg_color(obj,
+              on_fill ? lv_color_hex(0x000000) : lv_color_hex(0xFFFFFF),
+              LV_PART_MAIN);
+
           float rad = deg * 3.14159265f / 180.0f;
           // lv_obj_align() offsets from the PARENT's centre, so this stays
           // correct regardless of where the tile sits inside the tileview.
