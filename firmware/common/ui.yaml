@@ -31,6 +31,9 @@ globals:
   - id: claude_week_pct
     type: int
     initial_value: '0'
+  - id: claude_fable_pct
+    type: int
+    initial_value: '0'
   - id: codex_week_pct
     type: int
     initial_value: '0'
@@ -145,6 +148,7 @@ script:
     parameters:
       pct: int
     then:
+      - lambda: 'id(claude_fable_pct) = (pct < 0) ? 0 : pct;'
       - if:
           condition:
             lambda: 'return pct < 0;'
@@ -176,6 +180,7 @@ script:
                     if (pct >= 90) return Color(0xFF, 0x3B, 0x30);
                     if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
                     return Color(0xB0, 0x6A, 0xFF);
+      - script.execute: { id: refresh_markers }
 
   - id: set_claude_reset
     parameters:
@@ -350,9 +355,9 @@ script:
       - lambda: 'id(codex_elapsed) = pct;'
       - script.execute: { id: refresh_markers }
 
-  # Redraw every marker from the stored globals. Cheap (5 obj repositions) and
+  # Redraw every marker from the stored globals. Cheap (7 obj repositions) and
   # called whenever EITHER input changes, so order of arrival doesn't matter.
-  # mode: parallel — refresh_markers fires place_marker 5x back-to-back, and
+  # mode: parallel — refresh_markers fires place_marker 7x back-to-back, and
   # both can be re-entered as sensors land. The default (single) would silently
   # DROP those calls, leaving markers stale. Safe here: both scripts are pure
   # synchronous lambdas with no delays, so there is nothing to interleave.
@@ -384,6 +389,17 @@ script:
           marker_id: 4
           pct: !lambda 'return id(codex_elapsed);'
           used: !lambda 'return id(codex_week_pct);'
+      # Fable: same elapsed % as the weekly (shared resets_at), own usage %.
+      - script.execute:
+          id: place_marker
+          marker_id: 5
+          pct: !lambda 'return id(week_elapsed);'
+          used: !lambda 'return id(claude_fable_pct);'
+      - script.execute:
+          id: place_marker
+          marker_id: 6
+          pct: !lambda 'return id(week_elapsed);'
+          used: !lambda 'return id(claude_fable_pct);'
 
   # === Pace markers ===
   # A small dot on the ring showing how far THROUGH the window we are, so the
@@ -396,9 +412,10 @@ script:
   #   Combined bot: 4..176 REVERSE, fills from 176 backwards    -> 176 - p*1.72
   # Radius = (arc diameter - arc_width) / 2, so the dot rides the ring's centre.
   - id: place_marker
-    mode: parallel        # see refresh_markers — called 5x in a row
+    mode: parallel        # see refresh_markers — called 7x in a row
     parameters:
-      marker_id: int      # 0=claude session(tile1) 1=claude week(tile1) 2=cmb session 3=cmb week 4=cmb codex
+      marker_id: int      # 0=session 1=week 2=cmb session 3=cmb week
+                          # 4=cmb codex 5=fable 6=cmb fable
       pct: int            # elapsed % — where the dot goes
       used: int           # usage % — what's under the dot (decides its color)
     then:
@@ -416,6 +433,11 @@ script:
             case 2: obj = id(mk_cmb_session); radius = (384-14)/2.0f; deg = 184 + pct*1.72f; break;
             case 3: obj = id(mk_cmb_week);    radius = (472-14)/2.0f; deg = 184 + pct*1.72f; break;
             case 4: obj = id(mk_cmb_codex);   radius = (472-14)/2.0f; deg = 176 - pct*1.72f; break;
+            // Fable shares the weekly's resets_at, so it shares the weekly's
+            // ANGLE — only the radius differs. Its colour still needs its own
+            // usage %, since Fable and all-models fill at different rates.
+            case 5: obj = id(mk_fable);       radius = (424-20)/2.0f; deg = -90 + pct*3.6f;  break;
+            case 6: obj = id(mk_cmb_fable);   radius = (428-14)/2.0f; deg = 184 + pct*1.72f; break;
             default: return;
           }
           if (pct < 0) { hide(obj); return; }
@@ -815,6 +837,15 @@ lvgl:
                   border_width: 0
                   hidden: true
               - obj:
+                  id: mk_cmb_fable
+                  width: 8
+                  height: 8
+                  radius: 4
+                  bg_color: 0xFFFFFF
+                  bg_opa: COVER
+                  border_width: 0
+                  hidden: true
+              - obj:
                   id: mk_cmb_session
                   width: 8
                   height: 8
@@ -954,6 +985,15 @@ lvgl:
               # Pace markers, last so they paint over the arcs.
               - obj:
                   id: mk_week
+                  width: 8
+                  height: 8
+                  radius: 4
+                  bg_color: 0xFFFFFF
+                  bg_opa: COVER
+                  border_width: 0
+                  hidden: true
+              - obj:
+                  id: mk_fable
                   width: 8
                   height: 8
                   radius: 4
