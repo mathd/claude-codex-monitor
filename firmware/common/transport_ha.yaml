@@ -27,6 +27,14 @@ sensor:
           pct: !lambda 'return std::isnan(x) ? -1 : (int) x;'
 
   - platform: homeassistant
+    id: ha_fable_pct
+    entity_id: sensor.claude_monitor_claude_fable_weekly_usage
+    on_value:
+      - script.execute:
+          id: set_claude_fable
+          pct: !lambda 'return std::isnan(x) ? -1 : (int) x;'
+
+  - platform: homeassistant
     id: ha_session_reset
     entity_id: sensor.claude_monitor_claude_session_reset
     on_value:
@@ -34,15 +42,17 @@ sensor:
           id: set_claude_reset
           minutes: !lambda 'return std::isnan(x) ? -1 : (int) x;'
 
-  # --- Codex sensors (published by the daemon: codex_state topic) ---
+  # The weekly reset covers BOTH weekly rings (week + fable share a resets_at).
   - platform: homeassistant
-    id: ha_codex_session_pct
-    entity_id: sensor.claude_monitor_codex_session_usage
+    id: ha_week_reset
+    entity_id: sensor.claude_monitor_claude_weekly_reset
     on_value:
       - script.execute:
-          id: set_codex_session
-          pct: !lambda 'return std::isnan(x) ? -1 : (int) x;'
+          id: set_claude_week_reset
+          minutes: !lambda 'return std::isnan(x) ? -1 : (int) x;'
 
+  # --- Codex sensors (published by the daemon: codex_state topic) ---
+  # No session sensor: OpenAI retired the 5h window.
   - platform: homeassistant
     id: ha_codex_week_pct
     entity_id: sensor.claude_monitor_codex_weekly_usage
@@ -51,9 +61,10 @@ sensor:
           id: set_codex_week
           pct: !lambda 'return std::isnan(x) ? -1 : (int) x;'
 
+  # Codex's reset is now the WEEKLY countdown (the session entity is gone).
   - platform: homeassistant
-    id: ha_codex_session_reset
-    entity_id: sensor.claude_monitor_codex_session_reset
+    id: ha_codex_week_reset
+    entity_id: sensor.claude_monitor_codex_weekly_reset
     on_value:
       - script.execute:
           id: set_codex_reset

@@ -15,10 +15,12 @@ globals:
     restore_value: true
     initial_value: 'false'
   # --- auto-switch state ---
+  # Claude's 5h session is the ONLY activity signal left: it rises when you work
+  # and falls back to 0 when you stop. OpenAI retired Codex's 5h window, and a
+  # weekly % can't stand in for it — weekly never returns to 0, so it would pin
+  # the device "active" all week and the idle->active edge would never fire again.
+  # Codex therefore no longer participates in auto-switching.
   - id: claude_session_pct   # latest Claude 5h %
-    type: int
-    initial_value: '0'
-  - id: codex_session_pct    # latest Codex 5h %
     type: int
     initial_value: '0'
   - id: last_touch_ms        # millis() of last manual touch (pauses auto-switch)
@@ -112,6 +114,45 @@ script:
                     if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
                     return Color(0x00, 0xB0, 0xFF);
 
+  # Fable = the model-scoped weekly window. Shares set_claude_week's reset
+  # countdown (the API returns an identical resets_at for both weeklies), so
+  # this script owns a percentage only — there is no set_fable_reset.
+  - id: set_claude_fable
+    parameters:
+      pct: int
+    then:
+      - if:
+          condition:
+            lambda: 'return pct < 0;'
+          then:
+            - lvgl.arc.update: { id: arc_fable, value: 0 }
+            - lvgl.arc.update: { id: arc_cmb_claude_fable, value: 0 }
+            - lvgl.label.update: { id: lbl_fable, text: "fable --%" }
+            - lvgl.label.update: { id: lbl_cmb_claude_fable, text: "fbl --%" }
+          else:
+            - lvgl.arc.update: { id: arc_fable, value: !lambda 'return pct;' }
+            - lvgl.arc.update: { id: arc_cmb_claude_fable, value: !lambda 'return pct;' }
+            - lvgl.label.update:
+                id: lbl_fable
+                text: !lambda 'static char b[16]; snprintf(b, sizeof(b), "fable %d%%", pct); return b;'
+            - lvgl.label.update:
+                id: lbl_cmb_claude_fable
+                text: !lambda 'static char b[16]; snprintf(b, sizeof(b), "fbl %d%%", pct); return b;'
+            - lvgl.arc.update:
+                id: arc_fable
+                indicator:
+                  arc_color: !lambda |-
+                    if (pct >= 90) return Color(0xFF, 0x3B, 0x30);
+                    if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
+                    return Color(0xB0, 0x6A, 0xFF);                  // violet
+            - lvgl.arc.update:
+                id: arc_cmb_claude_fable
+                indicator:
+                  arc_color: !lambda |-
+                    if (pct >= 90) return Color(0xFF, 0x3B, 0x30);
+                    if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
+                    return Color(0xB0, 0x6A, 0xFF);
+
   - id: set_claude_reset
     parameters:
       minutes: int
@@ -149,44 +190,8 @@ script:
             }
             return b;
 
-  - id: set_codex_session
-    parameters:
-      pct: int
-    then:
-      - if:
-          condition:
-            lambda: 'return pct < 0;'
-          then:
-            - lambda: 'id(codex_session_pct) = 0;'
-            - lvgl.arc.update: { id: arc_codex_session, value: 0 }
-            - lvgl.arc.update: { id: arc_cmb_codex_session, value: 0 }
-            - lvgl.label.update: { id: lbl_codex_pct, text: "--%" }
-            - lvgl.label.update: { id: lbl_cmb_codex_pct, text: "--%" }
-          else:
-            - lambda: 'id(codex_session_pct) = pct;'
-            - lvgl.arc.update: { id: arc_codex_session, value: !lambda 'return pct;' }
-            - lvgl.arc.update: { id: arc_cmb_codex_session, value: !lambda 'return pct;' }
-            - lvgl.label.update:
-                id: lbl_codex_pct
-                text: !lambda 'static char b[8]; snprintf(b, sizeof(b), "%d%%", pct); return b;'
-            - lvgl.label.update:
-                id: lbl_cmb_codex_pct
-                text: !lambda 'static char b[8]; snprintf(b, sizeof(b), "%d%%", pct); return b;'
-            - lvgl.arc.update:
-                id: arc_codex_session
-                indicator:
-                  arc_color: !lambda |-
-                    if (pct >= 90) return Color(0xFF, 0x3B, 0x30);
-                    if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
-                    return Color(0x20, 0xD0, 0xD0);                  // teal
-            - lvgl.arc.update:
-                id: arc_cmb_codex_session
-                indicator:
-                  arc_color: !lambda |-
-                    if (pct >= 90) return Color(0xFF, 0x3B, 0x30);
-                    if (pct >= 70) return Color(0xFF, 0xB0, 0x00);
-                    return Color(0x20, 0xD0, 0xD0);
-
+  # OpenAI retired the 5h window, so Codex has no session script — week is its
+  # only number and therefore its headline (lbl_codex_pct, the big one).
   - id: set_codex_week
     parameters:
       pct: int
@@ -197,17 +202,17 @@ script:
           then:
             - lvgl.arc.update: { id: arc_codex_week, value: 0 }
             - lvgl.arc.update: { id: arc_cmb_codex_week, value: 0 }
-            - lvgl.label.update: { id: lbl_codex_week, text: "week --%" }
-            - lvgl.label.update: { id: lbl_cmb_codex_week, text: "wk --%" }
+            - lvgl.label.update: { id: lbl_codex_pct, text: "--%" }
+            - lvgl.label.update: { id: lbl_cmb_codex_pct, text: "--%" }
           else:
             - lvgl.arc.update: { id: arc_codex_week, value: !lambda 'return pct;' }
             - lvgl.arc.update: { id: arc_cmb_codex_week, value: !lambda 'return pct;' }
             - lvgl.label.update:
-                id: lbl_codex_week
-                text: !lambda 'static char b[16]; snprintf(b, sizeof(b), "week %d%%", pct); return b;'
+                id: lbl_codex_pct
+                text: !lambda 'static char b[8]; snprintf(b, sizeof(b), "%d%%", pct); return b;'
             - lvgl.label.update:
-                id: lbl_cmb_codex_week
-                text: !lambda 'static char b[16]; snprintf(b, sizeof(b), "wk %d%%", pct); return b;'
+                id: lbl_cmb_codex_pct
+                text: !lambda 'static char b[8]; snprintf(b, sizeof(b), "%d%%", pct); return b;'
             - lvgl.arc.update:
                 id: arc_codex_week
                 indicator:
@@ -225,6 +230,33 @@ script:
 
   # NOTE: unlike Claude's, the Codex reset label intentionally ignores the
   # reset_show_clock toggle — countdown only (matches pre-refactor behavior).
+  # Now a weekly countdown (days, not hours) since the 5h window is gone.
+  # The weekly countdown covers BOTH weekly rings (week + fable share a
+  # resets_at), which is why there is no separate Fable reset. Days, not hours:
+  # a 7-day window would otherwise read "156h".
+  - id: set_claude_week_reset
+    parameters:
+      minutes: int
+    then:
+      - lvgl.label.update:
+          id: lbl_week_reset
+          text: !lambda |-
+            static char b[24];
+            if (minutes < 0) { snprintf(b, sizeof(b), "wk reset --"); return b; }
+            int m = minutes;
+            if (id(reset_show_clock)) {
+              time_t t = ::time(nullptr) + (time_t)m * 60;
+              struct tm *lt = localtime(&t);
+              // Weekly reset can be days out — a bare %H:%M would be ambiguous.
+              if (lt) { strftime(b, sizeof(b), "wk %a %H:%M", lt); }
+              else    { snprintf(b, sizeof(b), "wk %dd%02dh", m/1440, (m%1440)/60); }
+            } else if (m >= 1440) {
+              snprintf(b, sizeof(b), "wk reset %dd%02dh", m/1440, (m%1440)/60);
+            } else {
+              snprintf(b, sizeof(b), "wk reset %dh%02dm", m/60, m%60);
+            }
+            return b;
+
   - id: set_codex_reset
     parameters:
       minutes: int
@@ -235,7 +267,9 @@ script:
             static char b[24];
             if (minutes < 0) { snprintf(b, sizeof(b), "reset --"); return b; }
             int m = minutes;
-            snprintf(b, sizeof(b), "reset %dh%02dm", m/60, m%60);
+            // Weekly window: hours alone would read "156h" — show days.
+            if (m >= 1440) { snprintf(b, sizeof(b), "reset %dd%02dh", m/1440, (m%1440)/60); }
+            else           { snprintf(b, sizeof(b), "reset %dh%02dm", m/60, m%60); }
             return b;
       # Combined tile: countdown only, no "reset " prefix.
       - lvgl.label.update:
@@ -244,7 +278,8 @@ script:
             static char b[16];
             if (minutes < 0) { snprintf(b, sizeof(b), "--"); return b; }
             int m = minutes;
-            snprintf(b, sizeof(b), "%dh%02dm", m/60, m%60);
+            if (m >= 1440) { snprintf(b, sizeof(b), "%dd%02dh", m/1440, (m%1440)/60); }
+            else           { snprintf(b, sizeof(b), "%dh%02dm", m/60, m%60); }
             return b;
 
   # Touch handler, called by the board's touchscreen on_touch.
@@ -297,12 +332,13 @@ interval:
           id: clk_second
           angle: !lambda 'auto t = id(sntp_time).now(); if (!t.is_valid()) return 0.0f; return t.second * 60.0f;'                         # 3600/60
 
-  # Auto-switch tiles: Combined is home. When either 5h session goes active
+  # Auto-switch tiles: Combined is home. When the Claude 5h session goes active
   # (0 -> >0), rest on the Combined tile (col 0) which shows both providers at
-  # once. When BOTH sessions become idle (including "daemon offline" — HA pushes
-  # unavailable -> NAN -> the sensor handlers zero the globals), drop to the
-  # Clock (col 3). Edge-triggered on the idle<->active transition so it never
-  # fights a manual swipe mid-session. Paused 2 min after any manual touch.
+  # once. When it goes idle (including "daemon offline" — HA pushes unavailable
+  # -> NAN -> the sensor handler zeroes the global), drop to the Clock (col 3).
+  # Edge-triggered on the idle<->active transition so it never fights a manual
+  # swipe mid-session. Paused 2 min after any manual touch.
+  # Claude-only since OpenAI retired Codex's 5h window — see the globals note.
   - interval: 2s
     then:
       # If HA itself is unreachable there is no live data — treat as idle.
@@ -311,13 +347,11 @@ interval:
             not:
               api.connected:
           then:
-            - lambda: 'id(claude_session_pct) = 0; id(codex_session_pct) = 0;'
+            - lambda: 'id(claude_session_pct) = 0;'
       # Decide the target tile (writes id(switch_target): -1 = no change, else column)
       - lambda: |-
-          static bool prev_active = false;   // was either session active last tick?
-          int c = id(claude_session_pct);
-          int x = id(codex_session_pct);
-          bool active = (c > 0 || x > 0);
+          static bool prev_active = false;   // was the session active last tick?
+          bool active = (id(claude_session_pct) > 0);
           // last_touch_ms == 0 means "never touched" — without that check the
           // device boots paused and eats the first idle->active transition.
           bool paused = id(last_touch_ms) != 0 &&
@@ -416,14 +450,20 @@ lvgl:
                 else if (tile == id(tile_clock))    id(cur_tile) = 3;
                 else if (tile == id(tile_settings)) id(cur_tile) = 4;
         tiles:
-          # ---------- Tile 0: Combined (Claude + Codex, split rings) ----------
-          # Left half = Claude, right half = Codex. No divider — the color
-          # families (green/blue vs teal/gold) separate the halves. Six data
-          # points: each side shows session %, week %, and reset.
-          #   Left semicircle:  start 90 -> end 270 (clockwise through 180/left)
-          #   Right semicircle: start 270 -> end 90  (clockwise through 0/right)
-          # Arcs are full-diameter but only paint their half via the angle range;
-          # week = outer, session = inner (mirrors the single-service tiles).
+          # ---------- Tile 0: Combined (Claude top, Codex bottom) ----------
+          # Claude has three windows now and Codex one, so the old left/right
+          # mirror is gone. Instead EVERY arc fills from 9 o'clock, giving the
+          # four rings a common zero — lengths compare directly by eye, like
+          # bars sharing a baseline.
+          #
+          # LVGL angles: 0 = 3 o'clock, increasing CLOCKWISE (90 = 6 o'clock,
+          # 180 = 9, 270 = 12).
+          #   Claude (top):    184 -> 356, through 270. Fills from 9 naturally.
+          #   Codex  (bottom):   4 -> 176, through 90, mode: REVERSE so it fills
+          #                      from the 176 (9 o'clock) end rather than from 4.
+          # Both inset 4 deg from the 9/3 seams so the groups never touch.
+          # Claude's three rings nest inward (week outer, fable, session);
+          # Codex's single ring sits at the outer radius.
           - id: tile_combined
             row: 0
             column: 0
@@ -431,7 +471,7 @@ lvgl:
             bg_color: 0x000000
             bg_opa: COVER
             widgets:
-              # ---- Claude (left) ----
+              # ---- Claude (top): three nested rings, all anchored at 9 o'clock ----
               - arc:
                   id: arc_cmb_claude_week
                   align: CENTER
@@ -440,76 +480,112 @@ lvgl:
                   min_value: 0
                   max_value: 100
                   value: 0
-                  # Left semicircle, inset 8 deg from the 6 & 12 o'clock seams
-                  # so a black gap separates Claude's rings from Codex's.
-                  start_angle: 98
-                  end_angle: 262
+                  start_angle: 184
+                  end_angle: 356
                   adjustable: false
                   bg_opa: TRANSP
                   border_width: 0
                   pad_all: 0
                   arc_rounded: true
-                  arc_width: 16
+                  arc_width: 14
                   arc_color: 0x203A5C
                   arc_opa: COVER
                   indicator:
                     arc_rounded: true
-                    arc_width: 16
+                    arc_width: 14
                     arc_color: 0x18B4FF
               - arc:
-                  id: arc_cmb_claude_session
+                  id: arc_cmb_claude_fable
                   align: CENTER
-                  width: 400
-                  height: 400
+                  width: 428
+                  height: 428
                   min_value: 0
                   max_value: 100
                   value: 0
-                  start_angle: 98
-                  end_angle: 262
+                  start_angle: 184
+                  end_angle: 356
                   adjustable: false
                   bg_opa: TRANSP
                   border_width: 0
                   pad_all: 0
                   arc_rounded: true
-                  arc_width: 16
+                  arc_width: 14
+                  arc_color: 0x3A2A5C
+                  arc_opa: COVER
+                  indicator:
+                    arc_rounded: true
+                    arc_width: 14
+                    arc_color: 0xB06AFF
+              - arc:
+                  id: arc_cmb_claude_session
+                  align: CENTER
+                  width: 384
+                  height: 384
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  start_angle: 184
+                  end_angle: 356
+                  adjustable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  pad_all: 0
+                  arc_rounded: true
+                  arc_width: 14
                   arc_color: 0x1E5235
                   arc_opa: COVER
                   indicator:
                     arc_rounded: true
-                    arc_width: 16
+                    arc_width: 14
                     arc_color: 0x2BE06A
+              # Claude readout, top-down: session % (headline) with ITS countdown
+              # directly under it, then the two weeklies side by side in their
+              # ring colors. lbl_cmb_claude_reset is the SESSION countdown — it
+              # sits above the weekly pair so it can't be misread as theirs. The
+              # weekly reset lives on the Claude tile only; there is no room for
+              # a fifth line here and the session clock is the urgent one.
               - label:
                   id: lbl_cmb_claude_pct
                   align: CENTER
-                  x: -90
-                  y: -26
+                  y: -152
                   text: "--%"
                   text_color: 0xFFFFFF
                   text_font: font_pct_sm
               - label:
+                  id: lbl_cmb_claude_reset
                   align: CENTER
-                  x: -90
-                  y: 18
+                  y: -114
+                  text: "--"
+                  text_color: 0x999999
+                  text_font: font_tiny
+              - label:
+                  align: CENTER
+                  y: -90
                   text: "Claude"
                   text_color: 0xBBBBBB
                   text_font: font_small
               - label:
                   id: lbl_cmb_claude_week
                   align: CENTER
-                  x: -90
-                  y: 46
+                  x: -46
+                  y: -62
                   text: "wk --%"
                   text_color: 0x00B0FF
                   text_font: font_small
               - label:
-                  id: lbl_cmb_claude_reset
+                  id: lbl_cmb_claude_fable
                   align: CENTER
-                  x: -90
-                  y: 74
-                  text: "--"
-                  text_color: 0x999999
-                  text_font: font_tiny
-              # ---- Codex (right) ----
+                  x: 46
+                  y: -62
+                  text: "fbl --%"
+                  text_color: 0xB06AFF
+                  text_font: font_small
+              # ---- Codex (bottom): one ring, same 9 o'clock anchor ----
+              # Angles are LVGL's: 0 = 3 o'clock, increasing CLOCKWISE (hence
+              # 90 = 6 o'clock, 270 = 12). So the lower half is 4 -> 176, which
+              # sweeps through 90. That span's natural fill starts at 4 (the 3
+              # o'clock end) — mode: REVERSE flips it to fill from 176 instead,
+              # putting Codex's zero at 9 o'clock like Claude's rings.
               - arc:
                   id: arc_cmb_codex_week
                   align: CENTER
@@ -518,76 +594,44 @@ lvgl:
                   min_value: 0
                   max_value: 100
                   value: 0
-                  # Right semicircle, inset 8 deg from the 12 & 6 o'clock seams.
-                  start_angle: 278
-                  end_angle: 82
+                  start_angle: 4
+                  end_angle: 176
+                  mode: REVERSE
                   adjustable: false
                   bg_opa: TRANSP
                   border_width: 0
                   pad_all: 0
                   arc_rounded: true
-                  arc_width: 16
+                  arc_width: 14
                   arc_color: 0x3A2A14
                   arc_opa: COVER
                   indicator:
                     arc_rounded: true
-                    arc_width: 16
+                    arc_width: 14
                     arc_color: 0xFFB020
-              - arc:
-                  id: arc_cmb_codex_session
-                  align: CENTER
-                  width: 400
-                  height: 400
-                  min_value: 0
-                  max_value: 100
-                  value: 0
-                  start_angle: 278
-                  end_angle: 82
-                  adjustable: false
-                  bg_opa: TRANSP
-                  border_width: 0
-                  pad_all: 0
-                  arc_rounded: true
-                  arc_width: 16
-                  arc_color: 0x14323A
-                  arc_opa: COVER
-                  indicator:
-                    arc_rounded: true
-                    arc_width: 16
-                    arc_color: 0x20D0D0
+              # Codex readout: week % IS the headline now — no session to outrank it.
               - label:
                   id: lbl_cmb_codex_pct
                   align: CENTER
-                  x: 90
-                  y: -26
+                  y: 84
                   text: "--%"
                   text_color: 0xFFFFFF
                   text_font: font_pct_sm
               - label:
                   align: CENTER
-                  x: 90
-                  y: 18
-                  text: "Codex"
+                  y: 124
+                  text: "Codex week"
                   text_color: 0xBBBBBB
-                  text_font: font_small
-              - label:
-                  id: lbl_cmb_codex_week
-                  align: CENTER
-                  x: 90
-                  y: 46
-                  text: "wk --%"
-                  text_color: 0x20D0D0
                   text_font: font_small
               - label:
                   id: lbl_cmb_codex_reset
                   align: CENTER
-                  x: 90
-                  y: 74
+                  y: 152
                   text: "--"
                   text_color: 0x999999
                   text_font: font_tiny
           # ---------- Tile 1: Claude ----------
-          # Two rings (outer→inner): weekly (blue), session (green)
+          # Three rings (outer→inner): weekly (blue), fable (violet), session (green)
           - id: tile_claude
             row: 0
             column: 1
@@ -619,10 +663,33 @@ lvgl:
                     arc_width: 20
                     arc_color: 0x18B4FF
               - arc:
+                  id: arc_fable
+                  align: CENTER
+                  width: 424
+                  height: 424
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  start_angle: 0
+                  end_angle: 360
+                  adjustable: false
+                  bg_opa: TRANSP
+                  bg_color: 0x000000
+                  border_width: 0
+                  pad_all: 0
+                  arc_rounded: true
+                  arc_width: 20
+                  arc_color: 0x3A2A5C
+                  arc_opa: COVER
+                  indicator:
+                    arc_rounded: true
+                    arc_width: 20
+                    arc_color: 0xB06AFF
+              - arc:
                   id: arc_session
                   align: CENTER
-                  width: 396
-                  height: 396
+                  width: 376
+                  height: 376
                   min_value: 0
                   max_value: 100
                   value: 2
@@ -662,13 +729,29 @@ lvgl:
                   text_color: 0x00B0FF
                   text_font: font_small
               - label:
+                  id: lbl_fable
+                  align: CENTER
+                  y: 72
+                  text: "fable --%"
+                  text_color: 0xB06AFF
+                  text_font: font_small
+              - label:
                   id: lbl_reset
                   align: CENTER
-                  y: 76
+                  y: 102
                   text: "reset --"
                   text_color: 0x999999
                   text_font: font_small
-          # ---------- Tile 1: Codex (placeholder until daemon data lands) ----------
+              - label:
+                  id: lbl_week_reset
+                  align: CENTER
+                  y: 130
+                  text: "wk reset --"
+                  text_color: 0x777777
+                  text_font: font_tiny
+          # ---------- Tile 2: Codex ----------
+          # One ring: weekly (gold). OpenAI retired the 5h window, so the weekly
+          # number is the headline rather than a subtitle under a session %.
           - id: tile_codex
             row: 0
             column: 2
@@ -698,28 +781,6 @@ lvgl:
                     arc_rounded: true
                     arc_width: 26
                     arc_color: 0xFFB020
-              - arc:
-                  id: arc_codex_session
-                  align: CENTER
-                  width: 388
-                  height: 388
-                  min_value: 0
-                  max_value: 100
-                  value: 0
-                  start_angle: 0
-                  end_angle: 360
-                  adjustable: false
-                  bg_opa: TRANSP
-                  border_width: 0
-                  pad_all: 0
-                  arc_rounded: true
-                  arc_width: 26
-                  arc_color: 0x14323A
-                  arc_opa: COVER
-                  indicator:
-                    arc_rounded: true
-                    arc_width: 26
-                    arc_color: 0x20D0D0
               - label:
                   id: lbl_codex_pct
                   align: CENTER
@@ -730,20 +791,13 @@ lvgl:
               - label:
                   align: CENTER
                   y: 38
-                  text: "Codex"
+                  text: "Codex week"
                   text_color: 0xBBBBBB
                   text_font: font_med
               - label:
-                  id: lbl_codex_week
-                  align: CENTER
-                  y: 80
-                  text: "week --%"
-                  text_color: 0x20D0D0
-                  text_font: font_small
-              - label:
                   id: lbl_codex_reset
                   align: CENTER
-                  y: 112
+                  y: 80
                   text: "reset --"
                   text_color: 0x999999
                   text_font: font_small

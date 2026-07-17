@@ -2,7 +2,8 @@
 //
 // Mirrors the OpenUsage/CrossUsage approach: read ~/.codex/auth.json, refresh the
 // OAuth access token via auth.openai.com, then GET chatgpt.com/backend-api/wham/usage
-// and read the primary (5h) / secondary (weekly) rate-limit windows.
+// and read the weekly rate-limit window. OpenAI retired the 5h window, so only a
+// weekly number is published — see the note on codexUsageResp.
 //
 // Auto-refreshes the token (so it works even when you haven't run Codex recently)
 // and writes the refreshed tokens back to auth.json so the Codex CLI stays in sync.
@@ -125,21 +126,40 @@ func refreshCodexToken(ctx context.Context, a *codexAuth, path string) (string, 
 }
 
 // codexWindow is one rate-limit window from the usage response.
+// LimitWindowSeconds identifies WHICH window this is — see below.
 type codexWindow struct {
-	UsedPercent       float64 `json:"used_percent"`
-	ResetAfterSeconds int     `json:"reset_after_seconds"`
+	UsedPercent        float64 `json:"used_percent"`
+	ResetAfterSeconds  int     `json:"reset_after_seconds"`
+	LimitWindowSeconds int     `json:"limit_window_seconds"`
 }
 
+// OpenAI retired the 5h window. The weekly window MOVED INTO primary_window
+// (limit_window_seconds: 604800) and secondary_window is now null — the field
+// names stayed put while their meaning shifted, so mapping primary->session
+// silently mislabels weekly data as a session. Classify by the window's own
+// duration rather than trusting its position.
 type codexUsageResp struct {
 	PlanType  string `json:"plan_type"`
 	RateLimit struct {
-		PrimaryWindow   codexWindow `json:"primary_window"`
-		SecondaryWindow codexWindow `json:"secondary_window"`
+		PrimaryWindow   *codexWindow `json:"primary_window"`
+		SecondaryWindow *codexWindow `json:"secondary_window"`
 	} `json:"rate_limit"`
 }
 
-// fetchCodexUsage refreshes the token and fetches usage. Returns a *usage shaped
-// like the Claude one (session = primary/5h, week = secondary/weekly).
+// weeklyWindow returns whichever window covers ~a week (>= 24h), tolerating the
+// field shuffle. Returns nil if neither slot holds one.
+func (u *codexUsageResp) weeklyWindow() *codexWindow {
+	const daySeconds = 86400
+	for _, w := range []*codexWindow{u.RateLimit.PrimaryWindow, u.RateLimit.SecondaryWindow} {
+		if w != nil && w.LimitWindowSeconds >= daySeconds {
+			return w
+		}
+	}
+	return nil
+}
+
+// fetchCodexUsage refreshes the token and fetches usage. Returns a *usage with
+// only the weekly fields set (session stays 0 — OpenAI retired the 5h window).
 func fetchCodexUsage(ctx context.Context) *usage {
 	a, path, err := loadCodexAuth()
 	if err != nil {
@@ -194,11 +214,14 @@ func fetchCodexUsage(ctx context.Context) *usage {
 		}
 		return int(math.Round(float64(secs) / 60.0))
 	}
+	w := u.weeklyWindow()
+	if w == nil {
+		return nil // no usable window — caller treats as unavailable
+	}
+	// Session stays 0: OpenAI no longer publishes a 5h window.
 	return &usage{
-		SessionPct:      pct(u.RateLimit.PrimaryWindow.UsedPercent),
-		SessionResetMin: mins(u.RateLimit.PrimaryWindow.ResetAfterSeconds),
-		WeekPct:         pct(u.RateLimit.SecondaryWindow.UsedPercent),
-		WeekResetMin:    mins(u.RateLimit.SecondaryWindow.ResetAfterSeconds),
-		Ok:              true,
+		WeekPct:      pct(w.UsedPercent),
+		WeekResetMin: mins(w.ResetAfterSeconds),
+		Ok:           true,
 	}
 }

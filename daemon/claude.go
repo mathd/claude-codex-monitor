@@ -2,7 +2,8 @@
 //
 // Reads usage from Anthropic's read-only OAuth usage endpoint (the same one the
 // Claude clients use) — NOT a billed inference call. Free, no rate-limit exposure,
-// and returns structured windows: five_hour (session) and seven_day (weekly).
+// and returns structured windows: five_hour (session), seven_day (weekly), plus a
+// model-scoped weekly window inside the `limits` array (currently Fable).
 //
 // Token from ~/.claude/.credentials.json (claudeAiOauth). If the access token is
 // rejected, refresh it via platform.claude.com and retry (writing the rotated
@@ -132,9 +133,49 @@ type claudeWindow struct {
 	Utilization float64 `json:"utilization"`
 	ResetsAt    string  `json:"resets_at"` // RFC3339, may be null
 }
+
+// claudeLimit is one entry of the `limits` array — the newer shape that carries
+// the model-scoped weekly window. The scoped model is DATA, not schema: the kind
+// is the generic "weekly_scoped" and the model name lives in scope.model. The
+// now-null seven_day_opus / seven_day_sonnet fields show this slot has already
+// changed models once, so match on kind and never on an array index.
+// Percent is a pointer so an omitted/null field is distinguishable from a real
+// 0% — otherwise a schema change would silently publish "Fable 0%" as healthy.
+type claudeLimit struct {
+	Group   string   `json:"group"`
+	Kind    string   `json:"kind"`
+	Percent *float64 `json:"percent"`
+	Scope   *struct {
+		Model *struct {
+			DisplayName string `json:"display_name"`
+		} `json:"model"`
+	} `json:"scope"`
+}
+
 type claudeUsageResp struct {
-	FiveHour claudeWindow `json:"five_hour"`
-	SevenDay claudeWindow `json:"seven_day"`
+	FiveHour claudeWindow  `json:"five_hour"`
+	SevenDay claudeWindow  `json:"seven_day"`
+	Limits   []claudeLimit `json:"limits"`
+}
+
+// scopedWeekly returns the model-scoped weekly window's utilization, and whether
+// a usable one was present. Absent (older account shape, or the slot retired),
+// or present but with no percent -> false, so the caller can show "--" instead
+// of a fake 0%.
+//
+// Deliberately matched on group+kind rather than scope.model.display_name: the
+// scoped model is data, not schema (this slot held Opus and Sonnet before Fable
+// — see the now-null seven_day_opus/seven_day_sonnet fields). Matching the name
+// would break silently the next time Anthropic swaps the model. If the API ever
+// returns more than one weekly_scoped entry, this takes the first; today there
+// is exactly one.
+func (u *claudeUsageResp) scopedWeekly() (float64, bool) {
+	for _, l := range u.Limits {
+		if l.Group == "weekly" && l.Kind == "weekly_scoped" && l.Percent != nil {
+			return *l.Percent, true
+		}
+	}
+	return 0, false
 }
 
 func claudeGetUsage(ctx context.Context, token string) (*claudeUsageResp, int) {
@@ -179,8 +220,9 @@ func resetMinFromRFC3339(ts string) int {
 	return int(math.Round(mins))
 }
 
-// fetchUsage reads Claude usage, refreshing the token once on 401/403.
-// Returns a *usage (session = five_hour, week = seven_day) or nil on failure.
+// fetchUsage reads Claude usage, refreshing the token once on 401/403. Returns a
+// *usage (session = five_hour, week = seven_day, fable = the weekly_scoped limit)
+// or nil on failure.
 func fetchUsage(ctx context.Context) *usage {
 	access, refresh := claudeTokens()
 	if access == "" {
@@ -203,11 +245,22 @@ func fetchUsage(ctx context.Context) *usage {
 	}
 
 	pct := func(p float64) int { return int(math.Round(math.Max(0, math.Min(100, p)))) }
+
+	// nil (not 0) when absent, so the ring reads "--" rather than a fake 0%.
+	var fable *int
+	if f, ok := u.scopedWeekly(); ok {
+		v := pct(f)
+		fable = &v
+	} else {
+		log.Printf("Claude: no usable weekly_scoped limit in response — Fable will show unavailable")
+	}
+
 	return &usage{
 		SessionPct:      pct(u.FiveHour.Utilization),
 		SessionResetMin: resetMinFromRFC3339(u.FiveHour.ResetsAt),
 		WeekPct:         pct(u.SevenDay.Utilization),
 		WeekResetMin:    resetMinFromRFC3339(u.SevenDay.ResetsAt),
+		FablePct:        fable,
 		Ok:              true,
 	}
 }

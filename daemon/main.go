@@ -6,8 +6,9 @@
 // broker) and at the office (any device subscribes to the same broker).
 //
 // State topics (retained JSON):
-//   claude_monitor/state        Claude  {session_pct, session_reset_min, week_pct, week_reset_min, ...}
-//   claude_monitor/codex_state  Codex   (same shape)
+//
+//	claude_monitor/state        Claude  {session_pct, session_reset_min, week_pct, week_reset_min, ...}
+//	claude_monitor/codex_state  Codex   (same shape)
 //
 // Claude fetching is in claude.go, Codex in codex.go.
 package main
@@ -85,11 +86,19 @@ func loadConfig() config {
 
 // ---- usage payload ----
 
+// FablePct is the model-scoped weekly window (Claude only; Codex leaves it nil).
+// It shares WeekResetMin — the API returns an identical resets_at for both
+// weekly windows, so there is no separate Fable countdown.
+//
+// FablePct is a pointer so "no scoped window in the response" serializes to
+// null, which HA renders unavailable -> NAN -> the firmware's -1 "--" path.
+// A plain int would publish a healthy-looking 0% instead.
 type usage struct {
 	SessionPct      int  `json:"session_pct"`
 	SessionResetMin int  `json:"session_reset_min"`
 	WeekPct         int  `json:"week_pct"`
 	WeekResetMin    int  `json:"week_reset_min"`
+	FablePct        *int `json:"fable_pct"`
 	Ok              bool `json:"ok"`
 	Stale           bool `json:"stale"`
 }
@@ -127,11 +136,31 @@ func discoverySensors() []discoverySensor {
 		{"session_reset_min", "Claude Session Reset", "{{ value_json.session_reset_min }}", "min", "mdi:timer-sand", "claude"},
 		{"week_pct", "Claude Weekly Usage", "{{ value_json.week_pct }}", "%", "mdi:calendar-week", "claude"},
 		{"week_reset_min", "Claude Weekly Reset", "{{ value_json.week_reset_min }}", "min", "mdi:timer-sand", "claude"},
-		{"codex_session_pct", "Codex Session Usage", "{{ value_json.session_pct }}", "%", "mdi:clock-fast", "codex"},
-		{"codex_session_reset_min", "Codex Session Reset", "{{ value_json.session_reset_min }}", "min", "mdi:timer-sand", "codex"},
+		{"fable_pct", "Claude Fable Weekly Usage", "{{ value_json.fable_pct }}", "%", "mdi:calendar-star", "claude"},
+		// No Codex session sensors: OpenAI retired the 5h window.
 		{"codex_week_pct", "Codex Weekly Usage", "{{ value_json.week_pct }}", "%", "mdi:calendar-week", "codex"},
 		{"codex_week_reset_min", "Codex Weekly Reset", "{{ value_json.week_reset_min }}", "min", "mdi:timer-sand", "codex"},
 	}
+}
+
+// retiredSensorKeys are discovery configs we used to publish. They were sent
+// retained, so deleting them from discoverySensors() does NOT remove them —
+// the broker replays them and HA keeps the entities forever, showing a stale
+// value. An empty retained payload deletes the config and the entity.
+// Safe to run every connect; it is a no-op once the broker has forgotten them.
+var retiredSensorKeys = []string{
+	"codex_session_pct",       // OpenAI retired the 5h window
+	"codex_session_reset_min", // ditto
+}
+
+func removeRetiredDiscovery(client mqtt.Client, cfg config) {
+	for _, k := range retiredSensorKeys {
+		topic := fmt.Sprintf("%s/sensor/%s_%s/config", cfg.discoveryPre, cfg.deviceID, k)
+		if t := client.Publish(topic, 1, true, []byte{}); t.Wait() && t.Error() != nil {
+			log.Printf("retire discovery error (%s): %v", k, t.Error())
+		}
+	}
+	log.Printf("Retired %d obsolete discovery configs", len(retiredSensorKeys))
 }
 
 func publishDiscovery(client mqtt.Client, cfg config) {
@@ -196,8 +225,8 @@ func main() {
 		SetCleanSession(true).
 		SetAutoReconnect(true).
 		SetConnectRetry(true).
-		SetConnectRetryInterval(10 * time.Second).
-		SetKeepAlive(30 * time.Second).
+		SetConnectRetryInterval(10*time.Second).
+		SetKeepAlive(30*time.Second).
 		// Last Will: if the daemon dies, HA marks the sensors unavailable.
 		SetWill(availTopic(cfg), "offline", 1, true)
 	if cfg.mqttUser != "" {
@@ -205,6 +234,7 @@ func main() {
 	}
 	opts.SetOnConnectHandler(func(c mqtt.Client) {
 		log.Printf("Connected to MQTT broker")
+		removeRetiredDiscovery(c, cfg) // delete stale entities before re-announcing
 		publishDiscovery(c, cfg)
 		c.Publish(availTopic(cfg), 1, true, "online")
 	})
