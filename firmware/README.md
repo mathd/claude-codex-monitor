@@ -4,6 +4,13 @@ The complete device firmware for the **Waveshare ESP32-S3-Touch-LCD-2.1**. One f
 `claude-monitor.yaml`, defines the display driver, touch, the LVGL UI, and the Home
 Assistant sensor bindings that feed the gauges.
 
+<p>
+  <img src="../docs/images/usage-monitor-claude.webp" alt="Claude Code screen showing 44 percent session usage, weekly usage rings and reset countdowns" width="480" />
+</p>
+
+Claude Code on the round display. Photo retouched for lighting and background
+cleanup. See the [project photos](../README.md#photos) for the complete device.
+
 ## What it shows
 
 An LVGL `tileview` you swipe between:

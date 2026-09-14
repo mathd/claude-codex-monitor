@@ -9,6 +9,16 @@ Arc colors shift green → amber → red as you approach your limits. No sound.
 Inspired by [Claudial](https://github.com/Moge800/Claudial); built for harder
 hardware (RGB-parallel panel) with a different data path (MQTT + Home Assistant).
 
+## Photos
+
+<p>
+  <img src="docs/images/usage-monitor.webp" alt="Round desk monitor on its black stand, showing Claude usage and Codex weekly usage" width="400" />
+  <img src="docs/images/usage-monitor-claude.webp" alt="Claude Code screen with colored usage rings and reset countdowns" width="400" />
+</p>
+
+The combined view and a close-up of the Claude Code screen. Photos retouched
+for lighting and background cleanup.
+
 ## Architecture
 
 ```
